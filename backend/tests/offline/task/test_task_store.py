@@ -29,9 +29,9 @@ async def store(tmp_path) -> FileTaskStore:
     return instance
 
 
-async def test_default_tasks_dir_under_vesta() -> None:
+async def test_default_tasks_dir_under_evolyn() -> None:
     assert DEFAULT_TASKS_DIR.name == "tasks"
-    assert DEFAULT_TASKS_DIR.parent.name == ".vesta"
+    assert DEFAULT_TASKS_DIR.parent.name == ".evolyn"
 
 
 async def test_create_and_get_round_trip(store: FileTaskStore) -> None:
@@ -300,7 +300,11 @@ async def test_rejects_path_traversal_and_absolute_identifiers(
         await store.resolve("../../")
 
 
-async def test_rejects_symlinked_task_file(store: FileTaskStore, tmp_path) -> None:
+async def test_rejects_symlinked_task_file(
+    store: FileTaskStore,
+    tmp_path,
+    symlink_support: None,
+) -> None:
     task = await store.create(title="外部文件", owner_conversation_id=_OWNER)
     task_file = store.tasks_dir / f"{task.id}.json"
     external = tmp_path / "external.json"

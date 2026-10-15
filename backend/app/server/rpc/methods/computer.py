@@ -1,6 +1,7 @@
 """computer RPC methods：Host 状态 / 权限请求 / 只读最新 Observation。
 
-- ``computer.status``：只读，不弹权限提示；helper 死了可安全 ensure_started。
+- ``computer.status``：只读，不弹权限提示；Windows V1 无系统级权限概念，
+  由 runtime 可选实现 ``permission_status()`` 提供实时状态（缺失 → unknown）。
 - ``computer.request_permission``：仅 Desktop 用户显式点击时调用（prompt=true）。
 - ``computer.latest_observation``：从 durable Trace 读取（不调用 runtime.observe，
   不抢 Machine Lease）。
@@ -8,6 +9,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from typing import Any
@@ -17,12 +19,12 @@ from app.agent.events import AgentEventType
 from ..dispatcher import RpcContext, RpcDispatcher
 from ..protocol import INVALID_STATE, JsonRpcError, RpcErrorCode
 
-logger = logging.getLogger("vesta.server.rpc.computer")
+logger = logging.getLogger("evolyn.server.rpc.computer")
 
 _PERMISSIONS = frozenset({"accessibility", "screen_recording"})
 
 
-def _permission_state(value: bool | None) -> str:
+def _permission_state(value: Any) -> str:
     if value is None:
         return "unknown"
     return "granted" if value else "required"
@@ -48,28 +50,26 @@ def _lease_dict(application: Any) -> dict[str, Any] | None:
 
 
 async def _live_permissions(application: Any) -> tuple[str, str]:
-    """读取 helper 实时权限状态（不弹窗）；不可用时返回 unknown。"""
+    """读取 runtime 实时权限状态（不弹窗）；不可用时返回 unknown。"""
 
     runtime = application.computer_runtime
     if runtime is None:
         return "unknown", "unknown"
-    client = getattr(runtime, "helper_client", None)
-    if client is None:
+    permission_status = getattr(runtime, "permission_status", None)
+    if not callable(permission_status):
         return "unknown", "unknown"
     try:
-        await client.ensure_started()
-    except Exception as exc:
-        logger.warning("computer status: helper unavailable: %s", exc)
-        return "unknown", "unknown"
-    try:
-        accessibility = await client.call("accessibility_status", {})
-        screen = await client.call("screen_capture_status", {})
+        status = permission_status()
+        if inspect.isawaitable(status):
+            status = await status
     except Exception as exc:
         logger.warning("computer status permission check failed: %s", exc)
         return "unknown", "unknown"
+    if not isinstance(status, dict):
+        return "unknown", "unknown"
     return (
-        _permission_state(accessibility.get("trusted")),
-        _permission_state(screen.get("granted")),
+        _permission_state(status.get("accessibility")),
+        _permission_state(status.get("screen_recording")),
     )
 
 
@@ -137,22 +137,20 @@ async def computer_request_permission(
     runtime = application.computer_runtime
     if runtime is None:
         raise JsonRpcError(INVALID_STATE, "computer runtime unavailable")
-    client = getattr(runtime, "helper_client", None)
-    if client is None:
-        raise JsonRpcError(INVALID_STATE, "computer runtime unavailable")
 
-    # 这是只读权限请求（不弹自动授权），仅此处允许 prompt=true。
-    try:
-        await client.ensure_started()
-        if permission == "accessibility":
-            await client.call("accessibility_status", {"prompt": True})
-        else:
-            await client.call("screen_capture_status", {"prompt": True})
-    except Exception as exc:
-        logger.warning("computer permission request failed: %s", exc)
-        raise JsonRpcError(
-            RpcErrorCode.INTERNAL_ERROR, "permission request failed"
-        ) from exc
+    # Windows V1 无系统级权限申请：runtime 可选实现 request_permission；
+    # 未实现时仅刷新状态，不视为错误。
+    request = getattr(runtime, "request_permission", None)
+    if callable(request):
+        try:
+            outcome = request(permission)
+            if inspect.isawaitable(outcome):
+                await outcome
+        except Exception as exc:
+            logger.warning("computer permission request failed: %s", exc)
+            raise JsonRpcError(
+                RpcErrorCode.INTERNAL_ERROR, "permission request failed"
+            ) from exc
 
     # 返回最新状态（请求后继续轮询，不假装瞬间 granted）。
     return await computer_status({}, ctx)

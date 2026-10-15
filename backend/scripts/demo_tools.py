@@ -1,14 +1,13 @@
-"""手动测试工具层与 Agent 运行时的演示脚本。
+r"""手动测试工具层与 Agent 运行时的演示脚本。
 
-在 backend 目录运行：
+在 backend 目录运行（PowerShell）：
 
     # 1) 直接测试 6 个内置工具（read/write/list 免审批；shell/http/search 会弹人工审批）
-    .venv/bin/python scripts/demo_tools.py --direct
+    .venv\Scripts\python scripts\demo_tools.py --direct
 
     # 2) 用真实模型跑 AgentRuntime（含人工审批 + 工具执行记录）
-    .venv/bin/python scripts/demo_tools.py \
-        --agent "读取 workspace 下的文件，然后用 web 搜索 Vesta"
-    .venv/bin/python scripts/demo_tools.py --agent "..." --provider qwen
+    .venv\Scripts\python scripts\demo_tools.py --agent "读取 workspace 下的文件"
+    .venv\Scripts\python scripts\demo_tools.py --agent "..." --provider qwen
 """
 
 from __future__ import annotations
@@ -57,7 +56,7 @@ async def _demo_direct() -> None:
             name="write_file",
             arguments={
                 "path": "demo/hello.txt",
-                "content": "Vesta 本地工具测试",
+                "content": "Evolyn 本地工具测试",
             },
         )
     )
@@ -99,7 +98,7 @@ async def _demo_direct() -> None:
         ToolCall(
             id="q1",
             name="web_search",
-            arguments={"query": "Vesta", "max_results": 3},
+            arguments={"query": "Evolyn", "max_results": 3},
         )
     )
 
@@ -138,7 +137,7 @@ async def _demo_agent(query: str, provider: str | None) -> None:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Vesta 工具层演示")
+    parser = argparse.ArgumentParser(description="Evolyn 工具层演示")
     parser.add_argument(
         "--direct",
         action="store_true",

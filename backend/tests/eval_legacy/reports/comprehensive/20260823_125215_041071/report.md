@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -27,7 +27,7 @@
 - Git Commit：-
 - Scenario Digest：e8fedb4592b2af8eae1347c9980cd58b63fd60a9c3c5c56385f27dbfd111fa94
 - 生成时间：2026-08-23T12:52:15.662280+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-v3aec519
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-v3aec519
 
 ## 样本完整性
 
@@ -101,26 +101,26 @@
 ### core · eval-05 · run#2
 - [ran_ok] stop=context_error; expected=['final_answer']
 - [answer] missing_keypoints=['效率提升']; answer='Agent stopped: context preparation failed: estimated input tokens (1937) exceed input budget (1804)'
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-v3aec519/core/eval-05/run-2/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-v3aec519/core/eval-05/run-2/trace.json`
 
 ### core · eval-05 · run#3
 - [ran_ok] stop=context_error; expected=['final_answer']
 - [answer] missing_keypoints=['效率提升']; answer='Agent stopped: context preparation failed: estimated input tokens (1873) exceed input budget (1804)'
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-v3aec519/core/eval-05/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-v3aec519/core/eval-05/run-3/trace.json`
 
 ### memory · memory-03/prefer · run#1
 - [ran_ok] model_error
 - [reflection_action] actual=None expected=none
 - [core] missing=['先给结论', '解释原因'] forbidden=[]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-v3aec519/memory/memory-03/run-1/on/phase-prefer/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-v3aec519/memory/memory-03/run-1/on/phase-prefer/trace.json`
 
 ### memory · memory-03/prefer · run#2
 - [core] missing=['先给结论'] forbidden=[]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-v3aec519/memory/memory-03/run-2/on/phase-prefer/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-v3aec519/memory/memory-03/run-2/on/phase-prefer/trace.json`
 
 ### memory · memory-03/prefer · run#3
 - [core] missing=['先给结论'] forbidden=[]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-v3aec519/memory/memory-03/run-3/on/phase-prefer/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-v3aec519/memory/memory-03/run-3/on/phase-prefer/trace.json`
 
 ### learning · learning-05a · run#1
 - [learning] pattern not detected (0 clusters or no overlap with expected tasks)

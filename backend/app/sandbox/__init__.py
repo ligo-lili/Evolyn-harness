@@ -1,8 +1,7 @@
-"""Vesta 不可信进程沙箱。"""
+"""Evolyn 不可信进程沙箱。"""
 
 from .backends import (
     HostSandboxBackend,
-    MacOSSeatbeltBackend,
     SandboxBackend,
     UnsupportedSandboxBackend,
 )
@@ -15,10 +14,10 @@ from .models import (
     SandboxPolicy,
 )
 from .supervisor import SandboxSupervisor
+from .windows import WindowsSandboxBackend
 
 __all__ = [
     "HostSandboxBackend",
-    "MacOSSeatbeltBackend",
     "SandboxBackend",
     "SandboxConfig",
     "SandboxError",
@@ -30,4 +29,5 @@ __all__ = [
     "SandboxSupervisor",
     "SandboxUnavailableError",
     "UnsupportedSandboxBackend",
+    "WindowsSandboxBackend",
 ]

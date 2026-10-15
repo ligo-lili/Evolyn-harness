@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -27,7 +27,7 @@
 - Git Commit：35c7a84+working-tree-targeted-v2
 - Scenario Digest：e6cf6b052fb710df5e4f91a6df8e71cff72b85e98c1fa80d494eed3329a8d654
 - 生成时间：2026-08-23T11:13:18.860950+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-67mxmopy
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-67mxmopy
 
 ## 样本完整性
 
@@ -84,16 +84,16 @@
 - [skill] activated=['debug-python']; active skill 未在压缩后保留
 - [answer] missing_keypoints=['int', 'ValueError']; answer='Agent stopped: context preparation failed: estimated input tokens (1194) exceed input budget (1188)'
 - [compaction] compaction_events=[{'stage': 'none', 'trimmed': False, 'before': 955, 'after': 955, 'input_budget': 1188, 'trigger': 831, 'target': 534, 'summary_updated': False, 'summary_error': None}, {'stage': 'none', 'trimmed': False, 'before': 1194, 'after': 1194, 'input_budget': 1188, 'trigger': 831, 'target': 534, 'summary_updated': False, 'summary_error': None}]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-67mxmopy/core/skill-15/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-67mxmopy/core/skill-15/run-1/trace.json`
 
 ### core · skill-15 · run#2
 - [skill] activated=['debug-python']; active skill 未在压缩后保留
 - [compaction] compaction_events=[{'stage': 'none', 'trimmed': False, 'before': 955, 'after': 955, 'input_budget': 1188, 'trigger': 831, 'target': 534, 'summary_updated': False, 'summary_error': None}, {'stage': 'none', 'trimmed': False, 'before': 1186, 'after': 1186, 'input_budget': 1188, 'trigger': 831, 'target': 534, 'summary_updated': False, 'summary_error': None}]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-67mxmopy/core/skill-15/run-2/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-67mxmopy/core/skill-15/run-2/trace.json`
 
 ### core · skill-15 · run#3
 - [ran_ok] stop=context_error; expected=['final_answer']
 - [skill] activated=['debug-python']; active skill 未在压缩后保留
 - [answer] missing_keypoints=['int', 'ValueError']; answer='Agent stopped: context preparation failed: estimated input tokens (1191) exceed input budget (1188)'
 - [compaction] compaction_events=[{'stage': 'none', 'trimmed': False, 'before': 955, 'after': 955, 'input_budget': 1188, 'trigger': 831, 'target': 534, 'summary_updated': False, 'summary_error': None}, {'stage': 'none', 'trimmed': False, 'before': 1191, 'after': 1191, 'input_budget': 1188, 'trigger': 831, 'target': 534, 'summary_updated': False, 'summary_error': None}]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-67mxmopy/core/skill-15/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-67mxmopy/core/skill-15/run-3/trace.json`

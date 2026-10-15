@@ -1,7 +1,7 @@
 """Computer Runtime V0 契约单元测试。
 
-全部为纯单元测试：不调用真实 macOS API、不需要 Accessibility /
-Screen Recording 权限、不调用模型 API。
+全部为纯单元测试：不调用真实系统 API、不需要任何系统权限、
+不调用模型 API。
 """
 
 from __future__ import annotations

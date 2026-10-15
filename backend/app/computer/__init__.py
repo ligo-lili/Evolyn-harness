@@ -1,4 +1,4 @@
-"""Computer Runtime：目标绑定的屏幕观察、交互与 macOS 原生实现。
+"""Computer Runtime：目标绑定的屏幕观察、交互与 Windows 原生实现。
 
 本轮提供：
 - ``models``：Observation / ElementTarget / CoordinateTarget / ActionResult；
@@ -6,32 +6,26 @@
 - ``fake``：FakeComputerRuntime（供 Agent Tool 离线单测使用）；
 - ``tools``：computer_observe / click / type / key / scroll / open_app /
   focus_window 七个 Agent 工具 + ``register_computer_tools``；
-- ``helper_client``：MacOSHelperClient（Python ↔ Swift helper 的 JSON Lines
-  长驻 subprocess 客户端）；
-- ``macos``：MacOSComputerRuntime（AXUIElement / ScreenCaptureKit / CGEvent）。
+- ``windows``：WindowsComputerRuntime（UIAutomation / Pillow / SendInput）。
+
+``windows`` 依赖 uiautomation / Pillow 为可选组件：只有真正构建 Runtime
+时才导入（见 ``bootstrap.build_computer``），缺依赖不影响 Host 启动。
 """
 
 from .bootstrap import (
     ComputerHostStatus,
-    build_macos_computer,
+    build_computer,
     computer_enabled,
     current_platform,
-    resolve_helper_path,
+    missing_dependencies,
 )
 from .fake import FakeComputerRuntime, default_observation
-from .helper_client import (
-    ComputerHelperError,
-    ComputerHelperProcessError,
-    ComputerHelperProtocolError,
-    MacOSHelperClient,
-)
 from .lease import (
     ComputerBusyError,
     ComputerLeaseHook,
     ComputerLeaseManager,
     ComputerLeaseSnapshot,
 )
-from .macos import MacOSComputerRuntime
 from .models import (
     ActionName,
     ActionResult,
@@ -74,9 +68,6 @@ __all__ = [
     "ComputerBusyError",
     "ComputerClickTool",
     "ComputerFocusWindowTool",
-    "ComputerHelperError",
-    "ComputerHelperProcessError",
-    "ComputerHelperProtocolError",
     "ComputerHostStatus",
     "ComputerKeyTool",
     "ComputerLeaseHook",
@@ -98,16 +89,14 @@ __all__ = [
     "ElementStats",
     "ElementTarget",
     "FakeComputerRuntime",
-    "MacOSComputerRuntime",
-    "MacOSHelperClient",
     "Observation",
     "Target",
     "VerificationStatus",
     "Window",
-    "build_macos_computer",
+    "build_computer",
     "computer_enabled",
     "current_platform",
     "default_observation",
+    "missing_dependencies",
     "register_computer_tools",
-    "resolve_helper_path",
 ]

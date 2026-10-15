@@ -22,7 +22,7 @@
   "generated_at": "2026-08-23T11:27:19.928591+00:00",
   "git_commit": "35c7a84+working-tree-skill15-v5",
   "scenario_digest": "3ea942863ef5df17014a9df546e4ccdf7ee3eeaf7d589400d652e68f913dad46",
-  "run_root": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-65fwos8e",
+  "run_root": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-65fwos8e",
   "samples": [
     {
       "suite": "core",
@@ -155,8 +155,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-65fwos8e/core/skill-15/run-1/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-65fwos8e/core/skill-15/run-1/workspace",
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-65fwos8e/core/skill-15/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-65fwos8e/core/skill-15/run-1/workspace",
       "learning_diagnostics": null
     },
     {
@@ -290,8 +290,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-65fwos8e/core/skill-15/run-2/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-65fwos8e/core/skill-15/run-2/workspace",
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-65fwos8e/core/skill-15/run-2/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-65fwos8e/core/skill-15/run-2/workspace",
       "learning_diagnostics": null
     },
     {
@@ -425,8 +425,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-65fwos8e/core/skill-15/run-3/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-65fwos8e/core/skill-15/run-3/workspace",
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-65fwos8e/core/skill-15/run-3/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-65fwos8e/core/skill-15/run-3/workspace",
       "learning_diagnostics": null
     }
   ]

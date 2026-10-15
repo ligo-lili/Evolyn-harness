@@ -1,43 +1,29 @@
-"""macOS Computer bootstrap：解析 Swift helper 并构建真实 Runtime。
+"""Windows Computer bootstrap：构建真实 WindowsComputerRuntime。
 
-只支持 macOS。helper 找不到 / 未授权 / 显式 disable 都**不**应影响 Host
-启动（Chat / Run / Automation 照常工作），只是 Computer 不可用。
+只支持 Windows。依赖缺失（uiautomation / Pillow 未安装）或显式 disable
+都**不**应影响 Host 启动（Chat / Run / Automation 照常工作），
+只是 Computer 不可用。
 
-helper path 解析顺序：
-1. 显式参数（CLI ``--computer-helper``）；
-2. 环境变量 ``VESTA_MACOS_HELPER_PATH``；
-3. 开发环境自动寻找 ``native/macos-computer-helper/.build/debug/MacOSComputerHelper``。
-
-不自动 ``swift build``：Host 启动不应依赖本机安装 Swift toolchain。
+依赖探测只用 ``importlib.util.find_spec``（懒导入）：Host 启动不
+import 重量级 UIA / 截图库，只有真正构建 Runtime 时才加载。
 """
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
-from .helper_client import MacOSHelperClient
-from .macos import MacOSComputerRuntime
 from .runtime import ComputerRuntime
 
-logger = logging.getLogger("vesta.computer.bootstrap")
+logger = logging.getLogger("evolyn.computer.bootstrap")
 
-# backend/app/computer/bootstrap.py → 项目根
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_DEFAULT_DEV_HELPER = (
-    _PROJECT_ROOT
-    / "native"
-    / "macos-computer-helper"
-    / ".build"
-    / "debug"
-    / "MacOSComputerHelper"
-)
+ENV_COMPUTER_ENABLED = "EVOLYN_COMPUTER_ENABLED"
 
-ENV_HELPER_PATH = "VESTA_MACOS_HELPER_PATH"
-ENV_COMPUTER_ENABLED = "VESTA_COMPUTER_ENABLED"
+# Windows Computer Runtime 的可选依赖（缺一即降级）。
+_REQUIRED_MODULES = ("uiautomation", "PIL")
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,37 +39,13 @@ class ComputerHostStatus:
 
 
 def current_platform() -> str:
-    return "macos" if sys.platform == "darwin" else sys.platform
-
-
-def _is_executable(path: Path) -> bool:
-    try:
-        return path.is_file() and os.access(path, os.X_OK)
-    except OSError:
-        return False
-
-
-def resolve_helper_path(explicit: str | Path | None = None) -> Path | None:
-    """按 显式 > 环境变量 > dev 路径 顺序解析 helper 二进制。"""
-
-    candidates: list[Path] = []
-    if explicit:
-        candidates.append(Path(explicit).expanduser())
-    env = os.environ.get(ENV_HELPER_PATH)
-    if env:
-        candidates.append(Path(env).expanduser())
-    candidates.append(_DEFAULT_DEV_HELPER)
-
-    for candidate in candidates:
-        if _is_executable(candidate):
-            return candidate.resolve()
-    return None
+    return "windows" if sys.platform == "win32" else sys.platform
 
 
 def computer_enabled(enabled: bool | None = None) -> bool:
-    """Computer 开关：显式参数 > VESTA_COMPUTER_ENABLED > 默认启用。
+    """Computer 开关：显式参数 > EVOLYN_COMPUTER_ENABLED > 默认启用。
 
-    默认启用（非 macOS 是否可用由 ``build_macos_computer`` 判定，不会因为
+    默认启用（是否真正可用由 ``build_computer`` 判定，不会因为
     平台不同而把用户显式启用的意图误判为 disabled）。
     """
 
@@ -97,12 +59,18 @@ def computer_enabled(enabled: bool | None = None) -> bool:
     return True
 
 
-def build_macos_computer(
-    *,
-    helper_path: str | Path | None = None,
-    enabled: bool | None = None,
+def missing_dependencies() -> tuple[str, ...]:
+    """返回缺失的可选依赖模块名（空元组 = 依赖齐全）。"""
+
+    return tuple(
+        name for name in _REQUIRED_MODULES if importlib.util.find_spec(name) is None
+    )
+
+
+def build_computer(
+    *, enabled: bool | None = None
 ) -> tuple[ComputerRuntime | None, ComputerHostStatus]:
-    """构建真实 MacOSComputerRuntime；不可用时返回 (None, unavailable status)。"""
+    """构建真实 WindowsComputerRuntime；不可用时返回 (None, unavailable status)。"""
 
     platform = current_platform()
     is_enabled = computer_enabled(enabled)
@@ -117,7 +85,7 @@ def build_macos_computer(
         logger.info("Computer disabled; %s", status)
         return None, status
 
-    if platform != "macos":
+    if platform != "windows":
         status = ComputerHostStatus(
             enabled=True,
             available=False,
@@ -127,35 +95,38 @@ def build_macos_computer(
         logger.info("Computer unavailable on platform %s", platform)
         return None, status
 
-    path = resolve_helper_path(helper_path)
-    if path is None:
+    missing = missing_dependencies()
+    if missing:
         status = ComputerHostStatus(
             enabled=True,
             available=False,
             platform=platform,
-            reason="helper_not_found",
+            reason="dependencies_missing",
         )
-        logger.info("Computer helper not found; Host continues without computer")
+        logger.info(
+            "Computer dependencies missing (%s); Host continues without computer",
+            ", ".join(missing),
+        )
         return None, status
 
-    client = MacOSHelperClient(path)
-    runtime = MacOSComputerRuntime(client)
+    from .windows import WindowsComputerRuntime
+
+    runtime = WindowsComputerRuntime()
     status = ComputerHostStatus(
         enabled=True,
         available=True,
         platform=platform,
         reason=None,
-        helper_path=str(path),
-        runtime="macos",
+        runtime="windows",
     )
-    logger.info("Computer Runtime: macOS available (%s)", path)
+    logger.info("Computer Runtime: Windows available")
     return runtime, status
 
 
 __all__ = [
     "ComputerHostStatus",
-    "build_macos_computer",
+    "build_computer",
     "computer_enabled",
     "current_platform",
-    "resolve_helper_path",
+    "missing_dependencies",
 ]

@@ -117,9 +117,9 @@ class OpenAICompatibleEmbeddingAdapter:
         if base_url:
             client_kwargs["base_url"] = base_url
         if base_url and _is_local_base_url(base_url):
-            # 本地端点（Ollama / LM Studio 等）禁止读取系统代理：macOS 的
-            # 系统级代理配置会让 httpx 把 127.0.0.1 请求也发给代理，本地
-            # 服务反而拿到空 502。云端端点继续尊重系统代理。
+            # 本地端点（Ollama / LM Studio 等）禁止读取系统代理：系统级
+            # 代理配置会让 httpx 把 127.0.0.1 请求也发给代理，本地服务
+            # 反而拿到空 502。云端端点继续尊重系统代理。
             client_kwargs["http_client"] = httpx.AsyncClient(trust_env=False)
         self._client = AsyncOpenAI(**client_kwargs)
         self._model = model

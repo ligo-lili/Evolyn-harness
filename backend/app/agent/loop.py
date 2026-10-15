@@ -434,7 +434,7 @@ class AgentLoop:
                     trailing_system_messages.append(
                         Message(
                             role=MessageRole.SYSTEM,
-                            name="vesta_plan_mode",
+                            name="evolyn_plan_mode",
                             content=_PLAN_MODE_SYSTEM_MESSAGE,
                         )
                     )

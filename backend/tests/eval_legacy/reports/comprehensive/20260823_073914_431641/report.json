@@ -11,7 +11,7 @@
   "generated_at": "2026-08-23T07:39:14.719559+00:00",
   "git_commit": null,
   "scenario_digest": "a895dca8d94d16cae5f2e84c194ddf5a056483104a0daec0be779ae7fa5e85e1",
-  "run_root": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9",
+  "run_root": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9",
   "samples": [
     {
       "suite": "core",
@@ -144,8 +144,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-01/run-1/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-01/run-1/workspace"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-01/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-01/run-1/workspace"
     },
     {
       "suite": "core",
@@ -278,8 +278,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-05/run-1/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-05/run-1/workspace"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-05/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-05/run-1/workspace"
     },
     {
       "suite": "core",
@@ -412,8 +412,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-06/run-1/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-06/run-1/workspace"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-06/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-06/run-1/workspace"
     },
     {
       "suite": "core",
@@ -546,8 +546,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-30/run-1/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-30/run-1/workspace"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-30/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-30/run-1/workspace"
     },
     {
       "suite": "core",
@@ -680,8 +680,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/skill-01/run-1/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/skill-01/run-1/workspace"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/skill-01/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/skill-01/run-1/workspace"
     },
     {
       "suite": "core",
@@ -814,8 +814,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-04/run-1/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-04/run-1/workspace"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-04/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-04/run-1/workspace"
     },
     {
       "suite": "core",
@@ -948,8 +948,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-19/run-1/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-19/run-1/workspace"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-19/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-19/run-1/workspace"
     },
     {
       "suite": "core",
@@ -1082,8 +1082,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-02/run-1/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-02/run-1/workspace"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-02/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-02/run-1/workspace"
     },
     {
       "suite": "core",
@@ -1216,8 +1216,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-14/run-1/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-14/run-1/workspace"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-14/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-14/run-1/workspace"
     },
     {
       "suite": "memory",
@@ -1338,8 +1338,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/memory/memory-01/run-1/on/phase-learn/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/memory/memory-01/run-1/on"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/memory/memory-01/run-1/on/phase-learn/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/memory/memory-01/run-1/on"
     },
     {
       "suite": "memory",
@@ -1454,8 +1454,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/memory/memory-01/run-1/on/phase-recall/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/memory/memory-01/run-1/on"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/memory/memory-01/run-1/on/phase-recall/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/memory/memory-01/run-1/on"
     },
     {
       "suite": "memory",
@@ -1582,8 +1582,8 @@
         "run_budget_hard_model_calls": 12
       },
       "error": null,
-      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/memory/memory-05/run-1/on/phase-revise/trace.json",
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/memory/memory-05/run-1/on"
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/memory/memory-05/run-1/on/phase-revise/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/memory/memory-05/run-1/on"
     },
     {
       "suite": "learning",
@@ -1681,7 +1681,7 @@
       },
       "error": null,
       "trace_path": null,
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/learning/learning-01/run-1"
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/learning/learning-01/run-1"
     },
     {
       "suite": "learning",
@@ -1779,7 +1779,7 @@
       },
       "error": null,
       "trace_path": null,
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/learning/learning-02/run-1"
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/learning/learning-02/run-1"
     },
     {
       "suite": "learning",
@@ -1877,7 +1877,7 @@
       },
       "error": null,
       "trace_path": null,
-      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/learning/learning-05b/run-1"
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/learning/learning-05b/run-1"
     }
   ]
 }

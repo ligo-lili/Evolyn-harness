@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -24,7 +24,7 @@
 - Git Commit：35c7a84dee4d9a0460cc8583f4d975708e3d01df
 - Scenario Digest：1147e45d342aa6888d07677a39175fcad2ac3fce8af2527d2d492b652f056aee
 - 生成时间：2026-08-23T08:15:27.269188+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-ndmwpq75
 
 ## 分组结果
 
@@ -57,7 +57,7 @@
 - [reflection_action] actual=None expected=update
 - [reflection_mutation] actual=None expected=True
 - [stored_memory] content_missing=revision, content_missing=Recall Cue, revision=1 < 2
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/memory/memory-05/run-3/on/phase-revise/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-ndmwpq75/memory/memory-05/run-3/on/phase-revise/trace.json`
 
 ### learning · learning-05b · run#2
 - [learning] candidate_count=0 expected 1; expected names ['debug-python'] not matched (actual: []); update_count=0 expected 1; action not update: []

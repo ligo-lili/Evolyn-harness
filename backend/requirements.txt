@@ -23,3 +23,7 @@ aiosqlite==0.22.1
 PyYAML==6.0.3
 APScheduler==3.11.3
 structlog==26.1.0
+
+# Computer Runtime (Windows; lazily imported)
+uiautomation==2.0.29
+Pillow==12.3.0

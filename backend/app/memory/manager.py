@@ -52,11 +52,11 @@ from .search_index import (
 )
 from .store import DEFAULT_MEMORY_DIR, MemoryStore
 
-logger = logging.getLogger("vesta.memory.manager")
+logger = logging.getLogger("evolyn.memory.manager")
 
-CORE_MEMORY_MESSAGE_NAME = "vesta_core_memory"
-MEMORY_INDEX_MESSAGE_NAME = "vesta_memory_index"
-MEMORY_POLICY_MESSAGE_NAME = "vesta_memory_policy"
+CORE_MEMORY_MESSAGE_NAME = "evolyn_core_memory"
+MEMORY_INDEX_MESSAGE_NAME = "evolyn_memory_index"
+MEMORY_POLICY_MESSAGE_NAME = "evolyn_memory_policy"
 
 
 class MemoryManager:

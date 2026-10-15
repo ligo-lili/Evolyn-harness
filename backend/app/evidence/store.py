@@ -16,7 +16,7 @@ from app.conversation.store import DEFAULT_DATABASE_PATH
 
 from .models import EvidenceDocument, EvidenceRecord, EvidenceSearchHit
 
-logger = logging.getLogger("vesta.evidence.store")
+logger = logging.getLogger("evolyn.evidence.store")
 
 # FTS5 trigram 投影：external-content 模式（content 表即 evidence，不复制原文），
 # 由触发器保持同步；损坏或不可用时降级回 instr 子串扫描，原文不受影响。

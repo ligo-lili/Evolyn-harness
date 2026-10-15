@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -24,7 +24,7 @@
 - Git Commit：35c7a84dee4d9a0460cc8583f4d975708e3d01df
 - Scenario Digest：465dfde6ebf62dd22b5bf76e5e3a405d6c31bbcf32f19264897b7174b94a0db8
 - 生成时间：2026-08-23T08:03:36.020956+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-y1v2t90n
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-y1v2t90n
 
 ## 分组结果
 
@@ -56,25 +56,25 @@
 ### core · eval-04 · run#2
 - [tools] called=['list_files', 'get_current_time', 'task_create', 'task_create', 'task_create']; count_failures=['task_create=3 期望 1']
 - [task] new_tasks=3 期望 1; target=new 需要恰好一个新增 Task，实际 3
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-y1v2t90n/core/eval-04/run-2/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-y1v2t90n/core/eval-04/run-2/trace.json`
 
 ### memory · memory-05/revise · run#1
 - [reflection_action] actual=none expected=update
 - [reflection_mutation] actual=False expected=True
 - [stored_memory] content_missing=revision, revision=1 < 2
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-y1v2t90n/memory/memory-05/run-1/on/phase-revise/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-y1v2t90n/memory/memory-05/run-1/on/phase-revise/trace.json`
 
 ### memory · memory-05/revise · run#2
 - [reflection_action] actual=None expected=update
 - [reflection_mutation] actual=None expected=True
 - [stored_memory] content_missing=revision, revision=1 < 2
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-y1v2t90n/memory/memory-05/run-2/on/phase-revise/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-y1v2t90n/memory/memory-05/run-2/on/phase-revise/trace.json`
 
 ### memory · memory-05/revise · run#3
 - [reflection_action] actual=None expected=update
 - [reflection_mutation] actual=None expected=True
 - [stored_memory] content_missing=revision, revision=1 < 2
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-y1v2t90n/memory/memory-05/run-3/on/phase-revise/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-y1v2t90n/memory/memory-05/run-3/on/phase-revise/trace.json`
 
 ### learning · learning-02 · run#2
 - [learning] candidate_count=0 expected 1; expected names ['python-runtime-debug'] not matched (actual: []); create_count=0 expected 1; action not create: []

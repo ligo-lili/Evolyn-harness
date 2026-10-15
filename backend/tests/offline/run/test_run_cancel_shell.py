@@ -1,16 +1,17 @@
-"""Shell cancel：Run 被取消时终止整个进程组，无残留子进程。
+"""Shell cancel：Run 被取消时终止整个进程树，无残留子进程。
 
 覆盖：
-- ShellCommandTool.execute 收到 asyncio.CancelledError 时终止进程组并重抛；
+- ShellCommandTool.execute 收到 asyncio.CancelledError 时终止进程树并重抛；
 - 经 RunManager 取消一个正在执行 shell 工具的 Run 后，无残留进程。
 
-使用真实本地子进程（sleep），不调用模型 API。
+使用真实本地子进程（Python 长睡进程），不调用模型 API。
 """
 
 from __future__ import annotations
 
 import asyncio
-import shlex
+import sys
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -92,17 +93,62 @@ def fake_registry(
     return registry, adapter
 
 
-async def _pgrep_matches(pattern: str) -> bool:
-    """是否存在匹配 pattern 的进程（用于验证无残留）。"""
+_WINDOWS_ONLY = pytest.mark.skipif(
+    sys.platform != "win32", reason="shell cancel 验证基于 Windows 进程树"
+)
 
+_CHILD_SCRIPT = """\
+import pathlib
+import sys
+import time
+
+pathlib.Path(sys.argv[1]).write_text("started", encoding="utf-8")
+time.sleep(300)
+"""
+
+
+def _long_running_shell_setup(tmp_path: Path) -> tuple[str, Path, str]:
+    """准备一个长命子进程，返回 (shell 命令, marker 路径, 命令行关键字)。
+
+    子进程由脚本文件启动，脚本名携带唯一关键字；关键字同时出现在
+    PowerShell 与子进程的命令行中，用于枚举残留进程（对应原 pgrep -f）。
+    """
+
+    token = f"evolyn-cancel-probe-{uuid.uuid4().hex[:12]}"
+    script = tmp_path / f"{token}.py"
+    script.write_text(_CHILD_SCRIPT, encoding="utf-8")
+    marker = tmp_path / "shell-started"
+    command = f'& "{sys.executable}" "{script}" "{marker}"'
+    return command, marker, token
+
+
+async def _process_matching(pattern: str) -> bool:
+    """是否存在命令行包含 pattern 的进程（Windows 版 ``pgrep -f``）。
+
+    ``Get-CimInstance`` 只能查询命令行；``$PID`` 排除枚举进程自身，
+    避免它因为携带 pattern 而误报。
+    """
+
+    script = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.ProcessId -ne $PID -and "
+        f"$_.CommandLine -like '*{pattern}*' }} | "
+        "Select-Object -ExpandProperty ProcessId"
+    )
     process = await asyncio.create_subprocess_exec(
-        "pgrep",
-        "-f",
-        pattern,
+        "powershell",
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        script,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout_bytes, _ = await process.communicate()
+    stdout_bytes, stderr_bytes = await asyncio.wait_for(
+        process.communicate(), timeout=60
+    )
+    assert process.returncode == 0, stderr_bytes.decode("utf-8", errors="replace")
     return bool(stdout_bytes.strip())
 
 
@@ -111,21 +157,21 @@ async def _pgrep_matches(pattern: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+@_WINDOWS_ONLY
 @pytest.mark.asyncio
 async def test_shell_tool_cancel_terminates_process_group(tmp_path: Path) -> None:
-    marker = tmp_path / "shell-started"
-    quoted = shlex.quote(str(marker))
+    command, marker, token = _long_running_shell_setup(tmp_path)
     tool = ShellCommandTool(workspace_root=tmp_path)
     task = asyncio.create_task(
         tool.execute(
             {
-                "command": f"touch {quoted}; sleep 300",
+                "command": command,
                 "timeout_seconds": 300,
             }
         )
     )
 
-    # 等子进程真正启动（写 marker 后进入 sleep）。
+    # 等子进程真正启动（写 marker 后进入长睡）。
     for _ in range(100):
         if marker.exists():
             break
@@ -136,9 +182,9 @@ async def test_shell_tool_cancel_terminates_process_group(tmp_path: Path) -> Non
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    # 进程组应已被终止，无残留 sleep 进程。
+    # 进程树应已被终止，无残留子进程。
     await asyncio.sleep(0.2)
-    assert await _pgrep_matches("sleep 300") is False
+    assert await _process_matching(token) is False
 
 
 # ---------------------------------------------------------------------------
@@ -146,13 +192,12 @@ async def test_shell_tool_cancel_terminates_process_group(tmp_path: Path) -> Non
 # ---------------------------------------------------------------------------
 
 
+@_WINDOWS_ONLY
 @pytest.mark.asyncio
 async def test_runmanager_cancel_shell_run_leaves_no_process(
     tmp_path: Path,
 ) -> None:
-    marker = tmp_path / "run-shell-started"
-    quoted = shlex.quote(str(marker))
-    command = f"touch {quoted}; sleep 300"
+    command, marker, token = _long_running_shell_setup(tmp_path)
     call = ToolCall(
         id="shell-1",
         name="run_shell_command",
@@ -167,7 +212,7 @@ async def test_runmanager_cancel_shell_run_leaves_no_process(
     tools = ToolRegistry()
     tools.register(ShellCommandTool(workspace_root=tmp_path))
 
-    database = tmp_path / "vesta.db"
+    database = tmp_path / "evolyn.db"
     run_store = SQLiteRunStore(database)
     checkpoint_store = SQLiteCheckpointStore(database)
     await run_store.initialize()
@@ -196,4 +241,4 @@ async def test_runmanager_cancel_shell_run_leaves_no_process(
     assert checkpoint.status.value == "interrupted"
 
     await asyncio.sleep(0.2)
-    assert await _pgrep_matches("sleep 300") is False
+    assert await _process_matching(token) is False

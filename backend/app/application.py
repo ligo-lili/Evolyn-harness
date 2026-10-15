@@ -1,6 +1,6 @@
-"""Application：Vesta 的 composition root（统一依赖装配）。
+"""Application：Evolyn 的 composition root（统一依赖装配）。
 
-CLI（``app.models.chat``）与 Vesta Host（``app.server``）共用这一份
+CLI（``app.models.chat``）与 Evolyn Host（``app.server``）共用这一份
 “初始化并持有全部运行依赖”的逻辑，避免各自复制一套 wiring。
 
 生命周期：
@@ -134,7 +134,7 @@ from app.tools import (
 from app.tools.builtin._workspace import workspace_root_path
 from app.trace import SQLiteTraceStore
 
-logger = logging.getLogger("vesta.application")
+logger = logging.getLogger("evolyn.application")
 
 # 默认按需暴露的工具（不进入模型 schema，需 tool_search 搜索后激活）。
 _DEFERRED_TOOL_NAMES = frozenset(
@@ -145,7 +145,7 @@ _DEFERRED_TOOL_NAMES = frozenset(
 )
 
 DEFAULT_SYSTEM_PROMPT = (
-    "你是 Vesta，一个本地运行的智能助理。请使用用户的语言回答。"
+    "你是 Evolyn，一个本地运行的智能助理。请使用用户的语言回答。"
     "调用工具时优先使用已有结果；网页搜索通常只需一到两次，获得可用结果后"
     "立即整理回答，不要为了追求完美而反复改写相同查询。"
     "只有用户目标确实依赖实时或外部信息、或者需要操作本地环境时才调用工具；"
@@ -216,7 +216,7 @@ def _mark_deferred_tools(
 
 
 class Application:
-    """统一创建并持有 Vesta 的全部运行依赖。"""
+    """统一创建并持有 Evolyn 的全部运行依赖。"""
 
     def __init__(
         self,
@@ -483,7 +483,7 @@ class Application:
             skill_store,
         )
 
-        # Computer Runtime 可注入真实 macOS 实现或测试 Fake；未注入则不注册，
+        # Computer Runtime 可注入真实 Windows 实现或测试 Fake；未注入则不注册，
         # 普通 CLI / Host 现有功能完全不受影响。
         computer_lease: ComputerLeaseManager | None = None
         computer_session: ComputerSessionManager | None = None
@@ -512,7 +512,7 @@ class Application:
             )
             register_computer_tools(tool_registry, self._computer_runtime)
             self.computer_runtime = self._computer_runtime
-            # 真实 MacOSComputerRuntime 才有显式 start / close；
+            # 真实 WindowsComputerRuntime 才有显式 start / close；
             # FakeComputerRuntime 没有 start，用 getattr 探测，不影响现有路径。
             start_runtime = getattr(self._computer_runtime, "start", None)
             if callable(start_runtime):
@@ -620,8 +620,8 @@ class Application:
         )
 
         run_store = SQLiteRunStore(database)
-        # Run 终态 finalizer 顺序：先 end ComputerSession（清 target/snapshot + 通知
-        # helper 清 Native 状态），再 release Machine Lease。
+        # Run 终态 finalizer 顺序：先 end ComputerSession（清 target/snapshot），
+        # 再 release Machine Lease。
         computer_finalizers: list[object] = []
         if computer_session is not None:
             end_session = getattr(self._computer_runtime, "end_session", None)
@@ -771,7 +771,7 @@ class Application:
         if self.computer_session is not None:
             self.computer_session.close()
         if self.computer_runtime is not None:
-            # 只在确实注入真实 MacOSComputerRuntime（有 close）时关闭 helper。
+            # 只在确实注入真实 WindowsComputerRuntime（有 close）时释放资源。
             close_runtime = getattr(self.computer_runtime, "close", None)
             if callable(close_runtime):
                 await close_runtime()

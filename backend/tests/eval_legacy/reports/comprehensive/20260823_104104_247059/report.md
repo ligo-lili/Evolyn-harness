@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -27,7 +27,7 @@
 - Git Commit：35c7a84dee4d9a0460cc8583f4d975708e3d01df+working-tree-fix1
 - Scenario Digest：e6ea455c8c3d605561272ab3f5197d7d8e1e7cf034091506edeb5a8cd768700b
 - 生成时间：2026-08-23T10:41:04.869433+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1
 
 ## 样本完整性
 
@@ -103,46 +103,46 @@
 
 ### core · skill-03 · run#3
 - [answer] missing_keypoints=['WAL']; answer=''
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/core/skill-03/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/core/skill-03/run-3/trace.json`
 
 ### core · skill-04 · run#1
 - [tools] called=['read_file', 'read_file', 'read_file', 'read_file', 'write_file', 'skill_read', 'read_file', 'write_file']; count_failures=['skill_read=1 期望 2']; order=['read_file', 'read_file', 'read_file', 'read_file', 'write_file', 'skill_read', 'read_file', 'write_file'] 未包含有序序列 ['skill_read', 'skill_read']; failed_results=['read_file: Tool execution failed: FileNotFoundError: file does not exist: bug.py', 'read_file: Tool execution failed: FileNotFoundError: file does not exist: bug.py', 'read_file: Tool execution failed: FileNotFoundError: file does not exist: bug.py']
 - [skill] activated=['code-review']; missing_activated=['debug-python']
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/core/skill-04/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/core/skill-04/run-1/trace.json`
 
 ### core · skill-04 · run#2
 - [tools] called=['read_file', 'skill_read', 'read_file', 'read_file', 'write_file', 'read_file']; count_failures=['skill_read=1 期望 2']; order=['read_file', 'skill_read', 'read_file', 'read_file', 'write_file', 'read_file'] 未包含有序序列 ['skill_read', 'skill_read']; failed_results=['read_file: Tool execution failed: FileNotFoundError: file does not exist: bug.py', 'read_file: Tool execution failed: FileNotFoundError: file does not exist: bug.py']
 - [skill] activated=['code-review']; missing_activated=['debug-python']
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/core/skill-04/run-2/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/core/skill-04/run-2/trace.json`
 
 ### core · skill-04 · run#3
 - [tools] called=['read_file', 'read_file', 'read_file', 'write_file', 'skill_read', 'read_file']; count_failures=['skill_read=1 期望 2']; order=['read_file', 'read_file', 'read_file', 'write_file', 'skill_read', 'read_file'] 未包含有序序列 ['skill_read', 'skill_read']; failed_results=['read_file: Tool execution failed: FileNotFoundError: file does not exist: bug.py', 'read_file: Tool execution failed: FileNotFoundError: file does not exist: bug.py']
 - [skill] activated=['code-review']; missing_activated=['debug-python']
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/core/skill-04/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/core/skill-04/run-3/trace.json`
 
 ### core · skill-06 · run#3
 - [skill] activated=[]; missing_activation_failed=['write-notes']
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/core/skill-06/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/core/skill-06/run-3/trace.json`
 
 ### core · skill-15 · run#1
 - [skill] activated=['debug-python']; active skill 未在压缩后保留
 - [compaction] compaction_events=[]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/core/skill-15/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/core/skill-15/run-1/trace.json`
 
 ### core · skill-15 · run#2
 - [skill] activated=['debug-python']; active skill 未在压缩后保留
 - [answer] missing_keypoints=['int', 'ValueError']; answer=''
 - [compaction] compaction_events=[]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/core/skill-15/run-2/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/core/skill-15/run-2/trace.json`
 
 ### core · skill-15 · run#3
 - [skill] activated=['debug-python']; active skill 未在压缩后保留
 - [compaction] compaction_events=[]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/core/skill-15/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/core/skill-15/run-3/trace.json`
 
 ### memory · memory-01/learn · run#1
 - [stored_memory] content_missing=向量
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/memory/memory-01/run-1/on/phase-learn/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/memory/memory-01/run-1/on/phase-learn/trace.json`
 
 ### memory · memory-01/learn · run#3
 - [reflection_action] actual=none expected=create
@@ -150,12 +150,12 @@
 - [active_count] actual=0 expected=1
 - [core] missing=[] forbidden=['Markdown', '向量数据库']
 - [stored_memory] not_found=STORAGE_DECISION
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/memory/memory-01/run-3/on/phase-learn/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/memory/memory-01/run-3/on/phase-learn/trace.json`
 
 ### memory · memory-01/recall · run#3
 - [recall] reads=[] missing=['STORAGE_DECISION'] forbidden=[]
 - [read_count] actual=0 expected=1
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-lt9rj0a1/memory/memory-01/run-3/on/phase-recall/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-lt9rj0a1/memory/memory-01/run-3/on/phase-recall/trace.json`
 
 ### learning · learning-04 · run#2
 - [learning] candidate_count=0 expected 1; expected names ['ci-cache-recovery'] not matched (actual: []); create_count=0 expected 1; pattern not detected (0 clusters or no overlap with expected tasks); action not create: []

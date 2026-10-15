@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 from .backends import (
     HostSandboxBackend,
-    MacOSSeatbeltBackend,
     SandboxBackend,
     UnsupportedSandboxBackend,
     resolve_executable,
@@ -19,10 +19,11 @@ from .models import (
     SandboxLaunchSpec,
     SandboxPolicy,
 )
+from .windows import WindowsSandboxBackend
 
 _PROTECTED_RELATIVE_PATHS = (
     ".git",
-    ".vesta",
+    ".evolyn",
     ".env",
     "backend/.env",
 )
@@ -135,8 +136,8 @@ class SandboxSupervisor:
 
 
 def _platform_backend() -> SandboxBackend:
-    if sys.platform == "darwin":
-        return MacOSSeatbeltBackend()
+    if sys.platform == "win32":
+        return WindowsSandboxBackend()
     return UnsupportedSandboxBackend(sys.platform)
 
 
@@ -146,6 +147,8 @@ def _runtime_support_roots(
 ) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
     """仅开放包运行时缓存，不开放整个用户主目录。"""
 
+    if sys.platform == "win32":
+        return _windows_runtime_support_roots(command, env)
     home_value = env.get("HOME")
     if not home_value:
         return (), ()
@@ -167,6 +170,51 @@ def _runtime_support_roots(
         tuple(path.resolve() for path in readable if path.exists()),
         tuple(path.resolve() for path in writable if path.exists()),
     )
+
+
+def _windows_runtime_support_roots(
+    command: Path,
+    env: dict[str, str],
+) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    """Windows 版：只开放 npm / uv 在 %APPDATA% / %LOCALAPPDATA% 下的缓存目录。"""
+
+    bases = [
+        base
+        for name in ("APPDATA", "LOCALAPPDATA")
+        if (base := _env_path(env, name)) is not None
+    ]
+    readable: list[Path] = []
+    writable: list[Path] = []
+    name = command.name.lower()
+    if name in {"uv", "uvx"}:
+        for base in bases:
+            readable.extend((base / "uv", base / "uv" / "cache"))
+            writable.extend((base / "uv", base / "uv" / "cache"))
+    if name in {"node", "npm", "npx", "pnpm", "yarn", "bun", "bunx"}:
+        for base in bases:
+            candidates = (
+                base / "npm",
+                base / "npm-cache",
+                base / "pnpm",
+                base / "pnpm-cache",
+            )
+            readable.extend(candidates)
+            writable.extend(candidates)
+    command_parts = command.absolute().parts
+    if "node_modules" in command_parts:
+        index = command_parts.index("node_modules")
+        readable.append(Path(*command_parts[: index + 1]))
+    return (
+        tuple(path.resolve() for path in readable if path.exists()),
+        tuple(path.resolve() for path in writable if path.exists()),
+    )
+
+
+def _env_path(env: dict[str, str], name: str) -> Path | None:
+    value = env.get(name) or os.environ.get(name)
+    if not value:
+        return None
+    return Path(value).expanduser().resolve()
 
 
 def _deduplicate(paths: list[Path]) -> tuple[Path, ...]:

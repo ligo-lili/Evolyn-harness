@@ -1,6 +1,6 @@
-"""Token 估算误差校准：对比 Trace 中的请求前估算与 Provider 实际 Usage。
+r"""Token 估算误差校准：对比 Trace 中的请求前估算与 Provider 实际 Usage。
 
-数据源：本地 ``.vesta/vesta.db`` 的 agent_events。
+数据源：本地 ``.evolyn/evolyn.db`` 的 agent_events。
 每一步模型请求会产生：
 - ``model_started``：``estimated_input_tokens``（请求前的估算值）
 - ``model_completed``：``usage.input_tokens``（Provider 返回的实际值）
@@ -9,7 +9,7 @@
 用于校准 ``app/context/tokens.py`` 的模型族系数。
 
 用法：
-    .venv/bin/python scripts/calibrate_tokens.py [数据库路径]
+    .venv\Scripts\python scripts\calibrate_tokens.py [数据库路径]
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-DEFAULT_DB = Path(__file__).resolve().parents[1] / ".vesta" / "vesta.db"
+DEFAULT_DB = Path(__file__).resolve().parents[1] / ".evolyn" / "evolyn.db"
 
 
 def _load_pairs(database: Path) -> list[tuple[str, str, int, int]]:

@@ -20,7 +20,7 @@ from app.models.types import ModelProvider
 
 from .config import ContextSettings
 
-logger = logging.getLogger("vesta.context.capabilities")
+logger = logging.getLogger("evolyn.context.capabilities")
 
 
 class CapabilitySource(StrEnum):

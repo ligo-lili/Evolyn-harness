@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -24,7 +24,7 @@
 - Git Commit：-
 - Scenario Digest：a895dca8d94d16cae5f2e84c194ddf5a056483104a0daec0be779ae7fa5e85e1
 - 生成时间：2026-08-23T07:39:14.719559+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9
 
 ## 分组结果
 
@@ -64,11 +64,11 @@
 ### core · eval-04 · run#1
 - [tools] called=['get_current_time', 'list_files', 'task_create', 'task_create', 'task_create', 'task_create']; count_failures=['task_create=4 期望 1']; failed_results=["task_create: Invalid arguments: 'medium' is not a valid TaskPriority"]
 - [task] new_tasks=3 期望 1; target=new 需要恰好一个新增 Task，实际 3
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/core/eval-04/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/core/eval-04/run-1/trace.json`
 
 ### memory · memory-05/revise · run#1
 - [stored_memory] summary_missing=容量
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-r6470sd9/memory/memory-05/run-1/on/phase-revise/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-r6470sd9/memory/memory-05/run-1/on/phase-revise/trace.json`
 
 ### learning · learning-02 · run#1
 - [learning] candidate_count=0 expected 1; expected names ['python-runtime-debug'] not matched (actual: []); create_count=0 expected 1; action not create: []

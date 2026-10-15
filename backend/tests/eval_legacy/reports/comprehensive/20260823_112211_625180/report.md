@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -27,7 +27,7 @@
 - Git Commit：35c7a84+working-tree-skill15-v3
 - Scenario Digest：66e9d0f80b040f638392536a89c9aa536ab53ff8fc94b02b5bba2d67e4f34f82
 - 生成时间：2026-08-23T11:22:11.930062+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-q7eq88xw
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-q7eq88xw
 
 ## 样本完整性
 
@@ -55,8 +55,8 @@
 
 ### core · skill-15 · run#2
 - [skill] activated=['debug-python']; active skill 未在压缩后保留
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-q7eq88xw/core/skill-15/run-2/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-q7eq88xw/core/skill-15/run-2/trace.json`
 
 ### core · skill-15 · run#3
 - [skill] activated=['debug-python']; active skill 未在压缩后保留
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-q7eq88xw/core/skill-15/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-q7eq88xw/core/skill-15/run-3/trace.json`

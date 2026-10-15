@@ -14,7 +14,7 @@ from app.tools.output import (
 
 from .store import SQLiteEvidenceStore
 
-logger = logging.getLogger("vesta.evidence.recorder")
+logger = logging.getLogger("evolyn.evidence.recorder")
 
 
 class EvidenceRecorder:

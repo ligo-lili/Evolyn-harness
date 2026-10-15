@@ -1,9 +1,9 @@
-"""对已配置的模型提供商执行在线冒烟测试。
+r"""对已配置的模型提供商执行在线冒烟测试。
 
-在 backend 目录运行：
+在 backend 目录运行（Windows）：
 
-    .venv/bin/python -m app.models.smoke
-    .venv/bin/python -m app.models.smoke --provider qwen
+    .venv\Scripts\python -m app.models.smoke
+    .venv\Scripts\python -m app.models.smoke --provider qwen
 """
 
 from __future__ import annotations

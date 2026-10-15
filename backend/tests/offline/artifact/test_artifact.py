@@ -158,6 +158,14 @@ async def test_publish_file_rejects_bad_paths(tmp_path) -> None:
     with pytest.raises(ValueError, match="file"):
         await service.publish_file(path="reports")  # 不存在 → resolve 后 is_file False
 
+
+async def test_publish_file_rejects_symlink_escape(
+    tmp_path,
+    symlink_support: None,
+) -> None:
+    service = await _make_service(tmp_path)
+    _write(tmp_path / "outside.txt", "outside")
+
     # symlink 逃逸。
     link = tmp_path / "workspace" / "escape.txt"
     link.symlink_to(tmp_path / "outside.txt")
@@ -170,9 +178,11 @@ async def test_publish_file_sha256_and_mime(tmp_path) -> None:
     _write(tmp_path / "workspace" / "data.csv", "a,b\n1,2\n")
     artifact = await service.publish_file(path="data.csv", run_id="run-1")
     import hashlib
+    import mimetypes
 
     assert artifact.sha256 == hashlib.sha256(b"a,b\n1,2\n").hexdigest()
-    assert artifact.mime_type == "text/csv"
+    # 与标准库口径一致：Windows 注册表可能把 .csv 映射为 Excel MIME。
+    assert artifact.mime_type == mimetypes.guess_type("data.csv")[0]
 
 
 async def test_publish_file_too_large(monkeypatch, tmp_path) -> None:

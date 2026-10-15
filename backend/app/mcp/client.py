@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
+import sys
 from contextlib import AsyncExitStack
 from typing import Any, Protocol
 
@@ -18,6 +20,8 @@ from app.sandbox import SandboxLaunchSpec, SandboxSupervisor
 from .errors import MCPConnectionError, MCPToolCallError, MCPToolDiscoveryError
 from .models import MCPRemoteTool, MCPServerConfig
 
+logger = logging.getLogger("evolyn.mcp.client")
+
 _ENV_REFERENCE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 _SAFE_INHERITED_ENVIRONMENT = (
     "HOME",
@@ -27,6 +31,21 @@ _SAFE_INHERITED_ENVIRONMENT = (
     "SSL_CERT_DIR",
     "SSL_CERT_FILE",
     "TMPDIR",
+)
+_WINDOWS_INHERITED_ENVIRONMENT = (
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "USERPROFILE",
+    "TEMP",
+    "TMP",
+    "LOCALAPPDATA",
+    "APPDATA",
+    "NUMBER_OF_PROCESSORS",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
 )
 
 
@@ -88,6 +107,13 @@ class StdioMCPClient:
         self._stack = stack
         self._session = session
         self.launch_spec = launch
+        if launch.enforcement:
+            logger.warning(
+                "MCP Server '%s' sandboxed by %s; not enforced: %s",
+                self.config.name,
+                launch.backend,
+                ", ".join(launch.enforcement),
+            )
 
     async def list_tools(self) -> tuple[MCPRemoteTool, ...]:
         """发现服务器暴露的全部工具。"""
@@ -191,12 +217,18 @@ async def _close_quietly(stack: AsyncExitStack) -> None:
         pass
 
 
+def _safe_environment_keys() -> tuple[str, ...]:
+    if sys.platform == "win32":
+        return _WINDOWS_INHERITED_ENVIRONMENT
+    return _SAFE_INHERITED_ENVIRONMENT
+
+
 def _resolve_environment(config: MCPServerConfig) -> dict[str, str]:
     """从白名单环境开始解析引用，不再继承 Host 的全部密钥。"""
 
     resolved = {
         key: os.environ[key]
-        for key in _SAFE_INHERITED_ENVIRONMENT
+        for key in _safe_environment_keys()
         if os.environ.get(key)
     }
     for key, value in config.env.items():

@@ -17,7 +17,7 @@ def _failure(call: ToolCall, code: str = "stale_observation") -> ToolResult:
         tool_call_id=call.id,
         tool_name=call.name,
         success=False,
-        error=f"ComputerHelperError: {code}",
+        error=f"{code}: simulated runtime failure",
         duration_ms=1,
     )
 

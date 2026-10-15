@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -27,7 +27,7 @@
 - Git Commit：35c7a84+working-tree-final-regression
 - Scenario Digest：6943a4ddacbe5897648ad7f8ab04aa6eb0b3173f755984280d068b6c14819477
 - 生成时间：2026-08-23T11:28:58.680050+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-svpxf_jq
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-svpxf_jq
 
 ## 样本完整性
 
@@ -330,40 +330,40 @@
 
 ### core · eval-08 · run#3
 - [tools] called=['web_search', 'web_search']; total_count=2 期望 0
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-svpxf_jq/core/eval-08/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-svpxf_jq/core/eval-08/run-3/trace.json`
 
 ### core · eval-10 · run#3
 - [tools] called=['list_files']; total_count=1 期望 0
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-svpxf_jq/core/eval-10/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-svpxf_jq/core/eval-10/run-3/trace.json`
 
 ### core · eval-05 · run#1
 - [answer] missing_keypoints=['效率提升']; answer='我先核对一下当前任务的完整状态，再给你准确总结。\n\n<｜｜DSML｜｜tool_calls>\n<｜｜DSML｜｜invoke name="task_get">\n<｜｜DSML｜｜parameter name="task_id" string="true">current</｜｜DSML｜｜parameter>\n</｜｜DSML｜｜invoke>\n</｜｜DSML｜｜tool_calls>'
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-svpxf_jq/core/eval-05/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-svpxf_jq/core/eval-05/run-1/trace.json`
 
 ### core · eval-27 · run#2
 - [tools] called=['list_files']; total_count=1 期望 0
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-svpxf_jq/core/eval-27/run-2/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-svpxf_jq/core/eval-27/run-2/trace.json`
 
 ### core · skill-03 · run#2
 - [ran_ok] stop=model_error; expected=['final_answer']
 - [answer] missing_keypoints=['WAL']; answer="Agent stopped: model invocation failed: ModelAdapterError: deepseek model stream failed: Error code: 400 - {'error': {'message': 'Invalid assistant message: content or tool_calls must be set', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_request_error'}}"
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-svpxf_jq/core/skill-03/run-2/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-svpxf_jq/core/skill-03/run-2/trace.json`
 
 ### core · skill-14 · run#3
 - [ran_ok] stop=max_steps; expected=['final_answer']
 - [answer] missing_keypoints=['结论摘要', '来源', '置信度']; answer='Agent stopped: maximum step limit (8) reached'
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-svpxf_jq/core/skill-14/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-svpxf_jq/core/skill-14/run-3/trace.json`
 
 ### core · skill-15 · run#3
 - [skill] activated=['debug-python']; active skill 未在压缩后保留
 - [compaction] compaction_events=[{'stage': 'none', 'trimmed': False, 'before': 1461, 'after': 1461, 'input_budget': 1888, 'trigger': 1321, 'target': 849, 'summary_updated': False, 'summary_error': None}]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-svpxf_jq/core/skill-15/run-3/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-svpxf_jq/core/skill-15/run-3/trace.json`
 
 ### memory · memory-03/prefer · run#2
 - [reflection_action] actual=create expected=none
 - [active_count] actual=1 expected=0
 - [core] missing=['先给结论', '解释原因'] forbidden=[]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-svpxf_jq/memory/memory-03/run-2/on/phase-prefer/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-svpxf_jq/memory/memory-03/run-2/on/phase-prefer/trace.json`
 
 ### learning · learning-05a · run#1
 - [learning] pattern not detected (0 clusters or no overlap with expected tasks)

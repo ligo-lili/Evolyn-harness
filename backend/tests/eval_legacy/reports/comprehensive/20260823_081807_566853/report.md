@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -24,7 +24,7 @@
 - Git Commit：35c7a84dee4d9a0460cc8583f4d975708e3d01df+working-tree
 - Scenario Digest：a928e6f695d04cc069a720efa3e40411031600f138d2b59dbd0ddae95cc49a56
 - 生成时间：2026-08-23T08:18:07.878076+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-a16obcs9
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-a16obcs9
 
 ## 分组结果
 
@@ -96,9 +96,9 @@
 - [reflection_mutation] actual=None expected=True
 - [active_count] actual=0 expected=1
 - [stored_memory] not_found=STORAGE_DECISION
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-a16obcs9/memory/memory-01/run-2/on/phase-learn/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-a16obcs9/memory/memory-01/run-2/on/phase-learn/trace.json`
 
 ### memory · memory-01/recall · run#2
 - [recall] reads=[] missing=['STORAGE_DECISION'] forbidden=[]
 - [read_count] actual=0 expected=1
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-a16obcs9/memory/memory-01/run-2/on/phase-recall/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-a16obcs9/memory/memory-01/run-2/on/phase-recall/trace.json`

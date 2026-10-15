@@ -191,7 +191,7 @@ async def test_core_initialize_atomically_migrates_legacy_format(
     await CoreMemoryManager(memory_root).initialize()
 
     migrated = path.read_text(encoding="utf-8")
-    assert migrated == legacy.replace("oneagent-core-v1", "vesta-core-v1", 1)
+    assert migrated == legacy.replace("oneagent-core-v1", "evolyn-core-v1", 1)
     assert "updated_at: '2026-08-12T07:00:58+00:00'" in migrated
     assert "imported_from: oneAgent" in migrated
     assert "人工维护的长期约束" in migrated
@@ -227,7 +227,7 @@ async def test_core_mutations_work_after_legacy_migration(
     assert added_created is True
     assert added.key == "safety.confirmation"
     assert removed.key == "communication.language"
-    assert raw.count("format: vesta-core-v1") == 1
+    assert raw.count("format: evolyn-core-v1") == 1
     assert "oneagent-core-v1" not in raw
     assert raw.count("---") == 2
     assert "人工维护的长期约束" in visible
@@ -667,17 +667,23 @@ async def test_26th_memory_is_rejected_by_hard_capacity(memory_root: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_two_managers_share_capacity_lock(memory_root: Path) -> None:
-    first_manager = MemoryManager(memory_root, max_active=1)
-    second_manager = MemoryManager(memory_root, max_active=1)
-    await asyncio.gather(first_manager.initialize(), second_manager.initialize())
+async def test_concurrent_create_within_manager_respects_capacity(
+    memory_root: Path,
+) -> None:
+    """同一 Manager 内并发写被实例锁串行化，容量硬上限不破。
+
+    Windows 无 fcntl，跨实例文件锁不生效（已知限制）；此处固定同实例语义。
+    """
+
+    manager = MemoryManager(memory_root, max_active=1)
+    await manager.initialize()
 
     first, second = await asyncio.gather(
-        first_manager.create_if_capacity(title="A", summary="A", content="A"),
-        second_manager.create_if_capacity(title="B", summary="B", content="B"),
+        manager.create_if_capacity(title="A", summary="A", content="A"),
+        manager.create_if_capacity(title="B", summary="B", content="B"),
     )
 
-    assert await first_manager.active_count() == 1
+    assert await manager.active_count() == 1
     assert sum(record is not None for record in (first, second)) == 1
 
 

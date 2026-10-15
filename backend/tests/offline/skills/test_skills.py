@@ -319,17 +319,26 @@ def test_safe_skill_dir_accepts_valid_dir(tmp_path: Path) -> None:
     assert result == (tmp_path / "demo").resolve()
 
 
-def test_safe_skill_dir_rejects_escape_and_symlink(tmp_path: Path) -> None:
+def test_safe_skill_dir_rejects_escape(tmp_path: Path) -> None:
+    assert safe_skill_dir(tmp_path, "..") is None
+    assert safe_skill_dir(tmp_path, "missing") is None
+
+
+def test_safe_skill_dir_rejects_symlink(
+    symlink_support: None,
+    tmp_path: Path,
+) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
     (tmp_path / "link").symlink_to(outside, target_is_directory=True)
 
-    assert safe_skill_dir(tmp_path, "..") is None
     assert safe_skill_dir(tmp_path, "link") is None
-    assert safe_skill_dir(tmp_path, "missing") is None
 
 
-def test_safe_skill_file_rejects_symlink(tmp_path: Path) -> None:
+def test_safe_skill_file_rejects_symlink(
+    symlink_support: None,
+    tmp_path: Path,
+) -> None:
     skill_dir = tmp_path / "demo"
     skill_dir.mkdir()
     target = tmp_path / "elsewhere.txt"
@@ -361,7 +370,19 @@ def test_safe_skill_resource_rejects_escape(
     assert safe_skill_resource(skill_dir, relative) is None
 
 
-def test_safe_skill_resource_rejects_symlink_and_directory(
+def test_safe_skill_resource_rejects_directory_and_missing(
+    tmp_path: Path,
+) -> None:
+    skill_dir = tmp_path / "demo"
+    (skill_dir / "refs").mkdir(parents=True)
+    (skill_dir / "refs" / "subdir").mkdir()
+
+    assert safe_skill_resource(skill_dir, "refs/subdir") is None
+    assert safe_skill_resource(skill_dir, "refs/missing.txt") is None
+
+
+def test_safe_skill_resource_rejects_symlink(
+    symlink_support: None,
     tmp_path: Path,
 ) -> None:
     skill_dir = tmp_path / "demo"
@@ -369,11 +390,8 @@ def test_safe_skill_resource_rejects_symlink_and_directory(
     target = tmp_path / "outside.txt"
     target.write_text("x", encoding="utf-8")
     (skill_dir / "refs" / "link.txt").symlink_to(target)
-    (skill_dir / "refs" / "subdir").mkdir()
 
     assert safe_skill_resource(skill_dir, "refs/link.txt") is None
-    assert safe_skill_resource(skill_dir, "refs/subdir") is None
-    assert safe_skill_resource(skill_dir, "refs/missing.txt") is None
 
 
 # ---------------------------------------------------------------------------

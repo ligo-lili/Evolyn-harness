@@ -6,7 +6,7 @@ import asyncio
 
 from mcp.server.fastmcp import FastMCP
 
-server = FastMCP("vesta-test")
+server = FastMCP("evolyn-test")
 
 
 @server.tool()

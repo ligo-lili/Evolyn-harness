@@ -1,4 +1,4 @@
-"""Vesta 不可信进程的沙箱策略模型。"""
+"""Evolyn 不可信进程的沙箱策略模型。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SandboxFilesystemMode(StrEnum):
-    """沙箱对 Vesta workspace 的访问级别。"""
+    """沙箱对 Evolyn workspace 的访问级别。"""
 
     NONE = "none"
     READ_ONLY = "read_only"
@@ -62,7 +62,12 @@ class SandboxPolicy(BaseModel):
 
 
 class SandboxLaunchSpec(BaseModel):
-    """平台后端编译后的进程启动参数。"""
+    """平台后端编译后的进程启动参数。
+
+    ``enforcement`` 记录该后端**未**强制的隔离维度（如 Windows V1 的
+    ``network`` / ``read_isolation`` / 关闭 Low IL 时的 ``write_protection``），
+    供上层工具结果与日志如实标注，不假装完整隔离。
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -72,6 +77,7 @@ class SandboxLaunchSpec(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     backend: str
     sandboxed: bool
+    enforcement: tuple[str, ...] = ()
 
 
 __all__ = [

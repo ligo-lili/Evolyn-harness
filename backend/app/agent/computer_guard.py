@@ -147,13 +147,10 @@ def _failure_code(error: str | None) -> str:
     """优先读取结构化错误码；否则回退到子串匹配与正则。"""
 
     text = error or "unknown_computer_failure"
-    # helper error 协议格式：computer helper error: {code}: {message}
-    marker = "computer helper error: "
-    if marker in text:
-        rest = text.split(marker, 1)[1]
-        first = rest.split(":", 1)[0].strip()
-        if first and re.fullmatch(r"[a-z][a-z0-9_]{1,}", first):
-            return first
+    # Runtime 错误格式：{code}: {message}（结构化错误码优先）。
+    marker = text.split(":", 1)[0].strip()
+    if marker and re.fullmatch(r"[a-z][a-z0-9_]{1,}", marker):
+        return marker
     for code in _FAILURE_CODES:
         if code in text:
             return code

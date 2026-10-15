@@ -1,8 +1,12 @@
-"""沙箱策略的平台执行后端。"""
+"""沙箱策略的平台执行后端。
+
+Windows 的真实隔离后端在 ``windows.py``（低完整性 + Job Object）；
+本模块只保留通用基类、宿主直通后端与 fail-closed 兜底后端。
+"""
 
 from __future__ import annotations
 
-import json
+import os
 import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -10,7 +14,6 @@ from pathlib import Path
 from .errors import SandboxUnavailableError
 from .models import (
     SandboxLaunchSpec,
-    SandboxNetworkMode,
     SandboxPolicy,
 )
 
@@ -51,38 +54,6 @@ class HostSandboxBackend(SandboxBackend):
         )
 
 
-class MacOSSeatbeltBackend(SandboxBackend):
-    """使用 macOS Seatbelt 对整个 MCP 子进程树施加限制。"""
-
-    executable = Path("/usr/bin/sandbox-exec")
-
-    def prepare(
-        self,
-        *,
-        command: Path,
-        args: tuple[str, ...],
-        env: dict[str, str],
-        policy: SandboxPolicy,
-    ) -> SandboxLaunchSpec:
-        if not self.executable.is_file():
-            raise SandboxUnavailableError(
-                "macOS sandbox-exec 不可用，拒绝在宿主机直接启动第三方进程"
-            )
-        if policy.allowed_domains:
-            raise SandboxUnavailableError(
-                "当前 macOS 后端尚不能强制域名白名单，拒绝弱化网络策略"
-            )
-        profile = _seatbelt_profile(command, policy)
-        return SandboxLaunchSpec(
-            command=str(self.executable),
-            args=("-p", profile, str(command), *args),
-            cwd=str(policy.working_directory),
-            env=env,
-            backend="macos_seatbelt",
-            sandboxed=True,
-        )
-
-
 class UnsupportedSandboxBackend(SandboxBackend):
     """没有可靠平台实现时 fail closed。"""
 
@@ -99,90 +70,24 @@ class UnsupportedSandboxBackend(SandboxBackend):
     ) -> SandboxLaunchSpec:
         del command, args, env, policy
         raise SandboxUnavailableError(
-            f"平台 {self.platform!r} 尚无可用的 Vesta 沙箱后端，拒绝降级执行"
+            f"平台 {self.platform!r} 尚无可用的 Evolyn 沙箱后端，拒绝降级执行"
         )
-
-
-def _seatbelt_profile(command: Path, policy: SandboxPolicy) -> str:
-    lines = [
-        "(version 1)",
-        "(deny default)",
-        '(import "system.sb")',
-        "(allow process*)",
-    ]
-    readable = _unique_paths((*_platform_read_roots(), command, *policy.readable_roots))
-    metadata_paths = _ancestor_paths(
-        (command, *policy.readable_roots, *policy.writable_roots)
-    )
-    if metadata_paths:
-        lines.append(_literal_path_rule("allow", "file-read-metadata", metadata_paths))
-    if readable:
-        lines.append(_path_rule("allow", "file-read*", readable))
-    if policy.writable_roots:
-        lines.append(_path_rule("allow", "file-write*", policy.writable_roots))
-    if policy.denied_read_paths:
-        lines.append(_path_rule("deny", "file-read*", policy.denied_read_paths))
-    if policy.denied_write_paths:
-        lines.append(_path_rule("deny", "file-write*", policy.denied_write_paths))
-    if policy.network is SandboxNetworkMode.UNRESTRICTED:
-        lines.append("(allow network*)")
-    return "\n".join(lines)
-
-
-def _path_rule(effect: str, operation: str, paths: tuple[Path, ...]) -> str:
-    selectors = " ".join(
-        f"(subpath {json.dumps(str(path))})" for path in _unique_paths(paths)
-    )
-    return f"({effect} {operation} {selectors})"
-
-
-def _literal_path_rule(effect: str, operation: str, paths: tuple[Path, ...]) -> str:
-    unique = tuple(
-        dict.fromkeys(item.absolute() for item in paths if item.exists())
-    )
-    selectors = " ".join(
-        f"(literal {json.dumps(str(path))})"
-        for path in unique
-    )
-    return f"({effect} {operation} {selectors})"
-
-
-def _platform_read_roots() -> tuple[Path, ...]:
-    return tuple(
-        path
-        for path in (
-            Path("/System"),
-            Path("/usr"),
-            Path("/bin"),
-            Path("/sbin"),
-            Path("/Library/Frameworks"),
-            Path("/opt"),
-            Path("/opt/homebrew"),
-            Path("/private/var/select"),
-        )
-        if path.exists()
-    )
-
-
-def _unique_paths(paths: tuple[Path, ...]) -> tuple[Path, ...]:
-    return tuple(dict.fromkeys(path.resolve() for path in paths if path.exists()))
-
-
-def _ancestor_paths(paths: tuple[Path, ...]) -> tuple[Path, ...]:
-    ancestors: list[Path] = []
-    for path in paths:
-        current = path.absolute()
-        while current.parent != current:
-            ancestors.append(current)
-            current = current.parent
-    return tuple(dict.fromkeys(ancestors))
 
 
 def resolve_executable(command: str, *, env: dict[str, str]) -> Path:
-    """只接受真实存在的绝对 executable，同时保留虚拟环境入口语义。"""
+    """只接受真实存在的绝对 executable，同时保留虚拟环境入口语义。
+
+    Windows 下 ``shutil.which`` 会按 PATHEXT 解析 ``npx`` → ``npx.CMD``；
+    ``.cmd`` / ``.bat`` 的启动包装由 Windows 后端处理。
+    """
 
     candidate = Path(command).expanduser()
-    if candidate.is_absolute() or "/" in command:
+    separators = [os.sep]
+    if os.altsep:
+        separators.append(os.altsep)
+    if candidate.is_absolute() or any(
+        separator in command for separator in separators
+    ):
         executable = candidate.absolute()
     else:
         found = shutil.which(command, path=env.get("PATH"))
@@ -191,8 +96,10 @@ def resolve_executable(command: str, *, env: dict[str, str]) -> Path:
         executable = Path(found).absolute()
     try:
         resolved = executable.resolve(strict=True)
-    except OSError as exc:
-        raise SandboxUnavailableError(f"可执行文件无效：{executable}") from exc
+    except OSError:
+        # App Execution Alias（如 Store 版 pwsh）无法 strict resolve，
+        # 回退到非严格解析，可用性仍由 is_file() 把关。
+        resolved = executable.resolve(strict=False)
     if not resolved.is_file() or not executable.is_file():
         raise SandboxUnavailableError(f"可执行文件无效：{executable}")
     return executable
@@ -200,7 +107,6 @@ def resolve_executable(command: str, *, env: dict[str, str]) -> Path:
 
 __all__ = [
     "HostSandboxBackend",
-    "MacOSSeatbeltBackend",
     "SandboxBackend",
     "UnsupportedSandboxBackend",
     "resolve_executable",

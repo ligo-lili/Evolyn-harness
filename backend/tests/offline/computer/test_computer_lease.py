@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import os
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -54,41 +56,47 @@ def test_flock_blocks_second_manager(tmp_path) -> None:
     second.close()
 
 
-@pytest.mark.skipif(not hasattr(os, "fork"), reason="fcntl/fork is macOS-only")
-def test_flock_blocks_another_host_process(tmp_path) -> None:
-    """子进程模拟第二个 Vesta Host，真正验证跨进程 flock。"""
+def test_lease_blocks_another_host_process(tmp_path) -> None:
+    """子进程模拟第二个 Evolyn Host，真正验证跨进程文件锁。"""
 
+    backend_root = Path(__file__).resolve().parents[3]
     lock_path = tmp_path / "machine.lock"
-    ready_read, ready_write = os.pipe()
-    release_read, release_write = os.pipe()
-    pid = os.fork()
-    if pid == 0:
-        try:
-            os.close(ready_read)
-            os.close(release_write)
-            lease = ComputerLeaseManager(lock_path)
-            lease.acquire("child-run")
-            os.write(ready_write, b"1")
-            os.read(release_read, 1)
-            lease.close()
-            os._exit(0)
-        except BaseException:
-            os._exit(1)
-
-    os.close(ready_write)
-    os.close(release_read)
-    assert os.read(ready_read, 1) == b"1"
-    contender = ComputerLeaseManager(lock_path)
+    script = (
+        "import sys\n"
+        "from app.computer.lease import ComputerLeaseManager\n"
+        "lease = ComputerLeaseManager(sys.argv[1])\n"
+        "lease.acquire('child-run')\n"
+        "print('ready', flush=True)\n"
+        "sys.stdin.readline()\n"
+        "lease.close()\n"
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-X", "utf8", "-c", script, str(lock_path)],
+        cwd=str(backend_root),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
     try:
-        with pytest.raises(ComputerBusyError):
-            contender.acquire("parent-run")
+        assert child.stdout is not None
+        assert child.stdout.readline().strip() == "ready"
+
+        contender = ComputerLeaseManager(lock_path)
+        try:
+            with pytest.raises(ComputerBusyError):
+                contender.acquire("parent-run")
+        finally:
+            contender.close()
+
+        assert child.stdin is not None
+        child.stdin.write("\n")
+        child.stdin.flush()
+        assert child.wait(timeout=30) == 0
     finally:
-        os.write(release_write, b"1")
-        os.close(ready_read)
-        os.close(release_write)
-        _, status = os.waitpid(pid, 0)
-        contender.close()
-    assert os.waitstatus_to_exitcode(status) == 0
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
 
 
 class PlainTool(BaseTool):

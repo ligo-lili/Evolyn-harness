@@ -1,23 +1,51 @@
-"""进程内 owner + flock 跨 Host 互斥的 Computer Machine Lease。"""
+"""进程内 owner + 跨 Host 文件锁的 Computer Machine Lease。
+
+Windows 用 ``msvcrt.locking`` 字节锁（同一把锁文件跨进程互斥），
+其它平台回退 ``fcntl.flock``；两者均在进程退出时自动释放。
+"""
 
 from __future__ import annotations
 
-import fcntl
 import logging
 import os
+import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING
 
 from app.tools.hooks import ToolExecutionContext, ToolHook, ToolHookDecision
 
 if TYPE_CHECKING:
     from .session import ComputerSessionManager
 
-logger = logging.getLogger("vesta.computer.lease")
+logger = logging.getLogger("evolyn.computer.lease")
+
+if sys.platform == "win32":
+    import msvcrt
+
+    _LOCK_BYTES = 1
+
+    def _try_lock(lock_file: IO[str]) -> None:
+        """非阻塞地锁定文件第 1 字节；已被其它进程锁定时抛 OSError。"""
+
+        os.lseek(lock_file.fileno(), 0, os.SEEK_SET)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, _LOCK_BYTES)
+
+    def _unlock(lock_file: IO[str]) -> None:
+        os.lseek(lock_file.fileno(), 0, os.SEEK_SET)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, _LOCK_BYTES)
+
+else:
+    import fcntl
+
+    def _try_lock(lock_file: IO[str]) -> None:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(lock_file: IO[str]) -> None:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 class ComputerBusyError(RuntimeError):
@@ -65,8 +93,8 @@ class ComputerLeaseManager:
             self.lock_path.parent.mkdir(parents=True, exist_ok=True)
             lock_file = self.lock_path.open("a+", encoding="utf-8")
             try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as exc:
+                _try_lock(lock_file)
+            except OSError as exc:
                 lock_file.close()
                 logger.info("computer lease busy in another host")
                 raise ComputerBusyError(
@@ -113,7 +141,10 @@ class ComputerLeaseManager:
         self._acquired_at = None
         if lock_file is not None:
             try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                _unlock(lock_file)
+            except OSError:
+                # 解锁失败不致命：关闭句柄同样会释放锁。
+                logger.debug("computer lease unlock failed; relying on close")
             finally:
                 lock_file.close()
 
@@ -126,8 +157,8 @@ class ComputerLeaseHook(ToolHook):
     归属到该 Run，并在 Run 结束时清除。
 
     ``session_starter``：由 composition root 注入的异步 callable
-    （MacOSComputerRuntime.begin_session_rpc），负责通知 Native helper 显式
-    ``begin_session``。缺省时回退到 Python 侧同步 begin。
+    （真实 ComputerRuntime 的 ``begin_session_rpc``），负责通知 Runtime
+    显式 ``begin_session``。缺省时回退到 Python 侧同步 begin。
     """
 
     critical = True

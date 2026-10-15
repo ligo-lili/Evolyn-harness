@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -24,7 +24,7 @@
 - Git Commit：35c7a84dee4d9a0460cc8583f4d975708e3d01df
 - Scenario Digest：c3a972e83b13215ef9f7b0bcbdce278cc423cc643cac45d4f7900b04b0909529
 - 生成时间：2026-08-23T08:10:30.578940+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-a7i25f1g
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-a7i25f1g
 
 ## 分组结果
 
@@ -57,19 +57,19 @@
 - [reflection_action] actual=none expected=update
 - [reflection_mutation] actual=False expected=True
 - [stored_memory] content_missing=revision, content_missing=Recall Cue, revision=1 < 2
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-a7i25f1g/memory/memory-05/run-1/on/phase-revise/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-a7i25f1g/memory/memory-05/run-1/on/phase-revise/trace.json`
 
 ### memory · memory-05/revise · run#2
 - [reflection_action] actual=none expected=update
 - [reflection_mutation] actual=False expected=True
 - [stored_memory] content_missing=revision, content_missing=Recall Cue, revision=1 < 2
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-a7i25f1g/memory/memory-05/run-2/on/phase-revise/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-a7i25f1g/memory/memory-05/run-2/on/phase-revise/trace.json`
 
 ### memory · memory-05/revise · run#3
 - [reflection_action] actual=none expected=update
 - [reflection_mutation] actual=False expected=True
 - [stored_memory] content_missing=revision, content_missing=Recall Cue, revision=1 < 2
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-a7i25f1g/memory/memory-05/run-3/on/phase-revise/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-a7i25f1g/memory/memory-05/run-3/on/phase-revise/trace.json`
 
 ### learning · learning-02 · run#2
 - [learning] candidate_count=0 expected 1; expected names ['python-runtime-debug'] not matched (actual: []); create_count=0 expected 1; action not create: []

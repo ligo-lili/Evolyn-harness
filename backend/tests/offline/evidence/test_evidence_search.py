@@ -39,7 +39,7 @@ async def _seed(
 
 @pytest.fixture
 async def store(tmp_path: Path) -> SQLiteEvidenceStore:
-    store = SQLiteEvidenceStore(tmp_path / "vesta.db")
+    store = SQLiteEvidenceStore(tmp_path / "evolyn.db")
     await store.initialize()
     return store
 

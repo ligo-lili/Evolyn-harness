@@ -1,16 +1,16 @@
-"""Vesta Host 的本地 transport。
+"""Evolyn Host 的本地 transport。
 
 FastAPI 不是业务架构，只负责：
 
 - process lifespan（``application.start()`` / ``application.close()``）
 - WebSocket upgrade（``WS /rpc``）
-- ``GET /health``（供 Electron / 开发环境判断 Host 是否启动）
+- ``GET /health``（供本地客户端 / 开发环境判断 Host 是否启动）
 - ``GET /computer/screenshots/{observation_id}.png``（只读 media transport，
-  不是业务 API：供 Desktop Computer View 读取本地截图）
-- ``GET /artifacts/{artifact_id}/content``（只读 media transport：供 Desktop
+  不是业务 API：供本地客户端读取截图）
+- ``GET /artifacts/{artifact_id}/content``（只读 media transport：供本地客户端
   下载 / 打开 Agent 发布的 file Artifact）
 
-Renderer 的正常业务全部走 ``WS /rpc``（JSON-RPC 2.0，一条连接双向通信），
+正常业务全部走 ``WS /rpc``（JSON-RPC 2.0，一条连接双向通信），
 不再使用 REST CRUD。
 """
 
@@ -35,7 +35,7 @@ from .rpc import (
 )
 from .version import __version__
 
-logger = logging.getLogger("vesta.server")
+logger = logging.getLogger("evolyn.server")
 
 # 只允许 loopback client 读取截图（防止 --host 0.0.0.0 后把桌面截图暴露出去）。
 _ALLOWED_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -68,7 +68,7 @@ def computer_screenshot(observation_id: str, request: Request) -> Response:
         resolved = candidate.resolve()
     except OSError:
         raise HTTPException(status_code=404, detail="not found")
-    if not str(resolved).startswith(str(screenshot_dir) + "/"):
+    if not resolved.is_relative_to(screenshot_dir):
         raise HTTPException(status_code=404, detail="not found")
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail="not found")
@@ -134,7 +134,7 @@ def create_app(
     *,
     restart_callback: Callable[[], None] | None = None,
 ) -> FastAPI:
-    """构造 Vesta Host 应用。
+    """构造 Evolyn Host 应用。
 
     ``application`` 为 None 时自动用默认配置创建（provider 从 .env 选择）。
     调用方也可传入已配置的 Application（例如测试注入离线 fake registry）。
@@ -168,7 +168,7 @@ def create_app(
         if artifact_service is not None:
             artifact_service.set_broadcaster(hub.broadcast)
         logger.info(
-            "Vesta Host started · provider=%s · model=%s",
+            "Evolyn Host started · provider=%s · model=%s",
             application.provider,
             application.model,
         )
@@ -176,10 +176,10 @@ def create_app(
             yield
         finally:
             await application.close()
-            logger.info("Vesta Host stopped")
+            logger.info("Evolyn Host stopped")
 
     app = FastAPI(
-        title="Vesta Host",
+        title="Evolyn Host",
         version=__version__,
         lifespan=lifespan,
     )

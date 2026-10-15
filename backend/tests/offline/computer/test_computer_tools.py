@@ -1,7 +1,7 @@
 """Computer Tools V0 测试。
 
-全部使用 FakeComputerRuntime，不调用真实 macOS API、不需要 Accessibility /
-Screen Recording 权限、不调用模型 API（fake model）。
+全部使用 FakeComputerRuntime，不调用真实系统 API、不需要任何系统权限、
+不调用模型 API（fake model）。
 
 覆盖（对应需求 14）：
 1-8. 7 个工具的调用与参数解析
@@ -539,7 +539,7 @@ async def _build_application(tmp_path, *, computer_runtime):
     application = Application(
         provider="fake",
         model="fake-model",
-        database=tmp_path / "vesta.db",
+        database=tmp_path / "evolyn.db",
         tasks_dir=tmp_path / "tasks",
         mcp_config=tmp_path / "mcp.json",
         memory_dir=tmp_path / "memory",

@@ -1,4 +1,4 @@
-# Vesta Agent 综合评测报告
+# Evolyn Agent 综合评测报告
 
 ## 汇总
 
@@ -24,7 +24,7 @@
 - Git Commit：35c7a84dee4d9a0460cc8583f4d975708e3d01df+working-tree-pre-regression
 - Scenario Digest：ba32bc9cd0e6c838e6c14129844099bfae8a59e59a7feb1387575c0b6e049abb
 - 生成时间：2026-08-23T09:17:02.963739+00:00
-- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-9ab76cyl
+- 运行现场：/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-9ab76cyl
 
 ## 分组结果
 
@@ -116,21 +116,21 @@
 
 ### core · eval-29 · run#1
 - [ran_ok] stop=max_steps; expected=['final_answer']
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-9ab76cyl/core/eval-29/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-9ab76cyl/core/eval-29/run-1/trace.json`
 
 ### core · skill-03 · run#1
 - [ran_ok] stop=max_steps; expected=['final_answer']
 - [answer] missing_keypoints=['WAL']; answer='Agent stopped: maximum step limit (8) reached'
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-9ab76cyl/core/skill-03/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-9ab76cyl/core/skill-03/run-1/trace.json`
 
 ### core · skill-04 · run#1
 - [tools] called=['skill_read', 'list_files', 'run_shell_command']; count_failures=['skill_read=1 期望 2']; order=['skill_read', 'list_files', 'run_shell_command'] 未包含有序序列 ['skill_read', 'skill_read']
 - [skill] activated=['debug-python']; missing_activated=['code-review']
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-9ab76cyl/core/skill-04/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-9ab76cyl/core/skill-04/run-1/trace.json`
 
 ### core · skill-06 · run#1
 - [skill] activated=[]; missing_activation_failed=['write-notes']
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-9ab76cyl/core/skill-06/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-9ab76cyl/core/skill-06/run-1/trace.json`
 
 ### core · skill-15 · run#1
 - [ran_ok] stop=context_error; expected=['final_answer']
@@ -138,30 +138,30 @@
 - [skill] activated=[]; missing_activated=['debug-python']; active skill 未在压缩后保留
 - [answer] missing_keypoints=['int']; answer='Agent stopped: context preparation failed: ValueError: invalid context budget: window=6000 reserved_output=4096 safety_margin=4096 input_budget=-2192 (must be > 0)'
 - [compaction] compaction_events=[]
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-9ab76cyl/core/skill-15/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-9ab76cyl/core/skill-15/run-1/trace.json`
 
 ### core · eval-20 · run#1
 - [tools] called=['task_update', 'task_list', 'task_get', 'task_get', 'task_update', 'task_list']; missing_success=['task_update']; failed_results=["task_update: Invalid arguments: '任务不存在：ebadb544c464473864a59e93d73d6d9'", "task_get: Invalid arguments: '任务不存在：ebadb544c464473864a59e93d73d6d9'", "task_get: Invalid arguments: '任务不存在：ebadb544'", "task_update: Invalid arguments: '任务不存在：ebadb544c464473864a59e93d73d6d9'"]
 - [task] task=ebeadb54 title='发布新版本' status=active; status=active 期望之一 ['completed']; 步骤 s2 status=in_progress 期望 done; 步骤 s2 缺少 note; all_steps_done=False 期望 True
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-9ab76cyl/core/eval-20/run-1/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-9ab76cyl/core/eval-20/run-1/trace.json`
 
 ### memory · memory-01/learn · run#1
 - [reflection_action] actual=None expected=create
 - [reflection_mutation] actual=None expected=True
 - [active_count] actual=0 expected=1
 - [stored_memory] not_found=STORAGE_DECISION
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-9ab76cyl/memory/memory-01/run-1/on/phase-learn/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-9ab76cyl/memory/memory-01/run-1/on/phase-learn/trace.json`
 
 ### memory · memory-01/recall · run#1
 - [recall] reads=[] missing=['STORAGE_DECISION'] forbidden=[]
 - [read_count] actual=0 expected=1
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-9ab76cyl/memory/memory-01/run-1/on/phase-recall/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-9ab76cyl/memory/memory-01/run-1/on/phase-recall/trace.json`
 
 ### memory · memory-05/revise · run#1
 - [reflection_action] actual=None expected=update
 - [reflection_mutation] actual=None expected=True
 - [stored_memory] content_missing=revision, content_missing=Recall Cue, revision=1 < 2
-- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-9ab76cyl/memory/memory-05/run-1/on/phase-revise/trace.json`
+- Trace：`/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/evolyn-comprehensive-eval-9ab76cyl/memory/memory-05/run-1/on/phase-revise/trace.json`
 
 ### learning · learning-04 · run#1
 - [learning] candidate_count=0 expected 1; expected names ['ci-cache-recovery'] not matched (actual: []); create_count=0 expected 1; action not create: []

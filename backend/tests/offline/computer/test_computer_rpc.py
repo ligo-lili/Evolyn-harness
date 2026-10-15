@@ -12,7 +12,7 @@ from pydantic import SecretStr
 
 from app.agent.events import AgentEvent, AgentEventType
 from app.application import Application
-from app.computer import ComputerHostStatus, MacOSComputerRuntime
+from app.computer import ComputerHostStatus
 from app.models.adapter import ModelAdapter
 from app.models.config import ModelSettings, ProviderConfig
 from app.models.registry import ModelAdapterRegistry
@@ -36,32 +36,54 @@ from app.server.rpc.protocol import (
 )
 
 
-class StubHelperClient:
-    """记录 call 并返回预设结果的 HelperClient stub。"""
+class StubRuntime:
+    """可编程 Windows runtime stub：permission_status + request_permission。"""
 
-    def __init__(self, per_method: dict | None = None) -> None:
-        self.per_method = per_method or {}
-        self.calls: list[tuple[str, dict]] = []
-        self.started = False
+    def __init__(
+        self,
+        *,
+        status: dict | None = None,
+        request_result: object = None,
+        status_error: Exception | None = None,
+    ) -> None:
+        self._status = (
+            status
+            if status is not None
+            else {"accessibility": None, "screen_recording": None}
+        )
+        self._request_result = request_result
+        self._status_error = status_error
+        self.requested: list[str] = []
+        self.status_calls = 0
 
-    async def start(self) -> None:
-        self.started = True
+    def permission_status(self) -> dict:
+        self.status_calls += 1
+        if self._status_error is not None:
+            raise self._status_error
+        return self._status
 
-    async def close(self) -> None:
-        self.started = False
+    def request_permission(self, permission: str) -> None:
+        self.requested.append(permission)
+        if isinstance(self._request_result, Exception):
+            raise self._request_result
 
-    async def ensure_started(self) -> None:
-        if not self.started:
-            await self.start()
 
-    async def call(self, method: str, params: dict | None = None, **kwargs):
-        self.calls.append((method, params or {}))
-        if method in self.per_method:
-            result = self.per_method[method]
-            if isinstance(result, Exception):
-                raise result
-            return result
-        return {}
+class AsyncStubRuntime:
+    """permission_status / request_permission 均为 awaitable 的 runtime。"""
+
+    def __init__(self, status: dict) -> None:
+        self._status = status
+        self.requested: list[str] = []
+
+    async def permission_status(self) -> dict:
+        return self._status
+
+    async def request_permission(self, permission: str) -> None:
+        self.requested.append(permission)
+
+
+class NoPermissionRuntime:
+    """未实现 permission_status 的 runtime（状态一律 unknown）。"""
 
 
 class _OfflineAdapter(ModelAdapter):
@@ -103,7 +125,7 @@ async def _build_application(
     application = Application(
         provider="fake",
         model="fake-model",
-        database=tmp_path / "vesta.db",
+        database=tmp_path / "evolyn.db",
         tasks_dir=tmp_path / "tasks",
         mcp_config=tmp_path / "mcp.json",
         memory_dir=tmp_path / "memory",
@@ -136,10 +158,10 @@ def _available_status() -> ComputerHostStatus:
     return ComputerHostStatus(
         enabled=True,
         available=True,
-        platform="macos",
+        platform="windows",
         reason=None,
-        helper_path="/tmp/helper",
-        runtime="macos",
+        helper_path=None,
+        runtime="windows",
     )
 
 
@@ -147,21 +169,18 @@ def _observation_payload(obs_id: str = "obs-1") -> dict:
     return {
         "id": obs_id,
         "created_at": "2026-08-20T00:00:00+00:00",
-        "active_app": {
-            "name": "TextEdit",
-            "bundle_id": "com.apple.TextEdit",
-            "pid": 100,
-        },
+        "target": {"name": "notepad", "pid": 100},
+        "active_app": {"name": "notepad", "pid": 100},
         "active_window": {
-            "ref": "w1",
-            "title": "Untitled",
+            "ref": "W00001234",
+            "title": "Untitled - Notepad",
             "bounds": {"x": 0, "y": 0, "width": 800, "height": 600},
         },
         "windows": [],
         "elements": [
             {
                 "ref": "e1",
-                "role": "text_area",
+                "role": "text_field",
                 "title": None,
                 "value": "hi",
                 "enabled": True,
@@ -224,41 +243,32 @@ async def test_status_runtime_absent(tmp_path) -> None:
 
 
 async def test_status_runtime_available(tmp_path) -> None:
-    stub = StubHelperClient(
-        per_method={
-            "accessibility_status": {"trusted": True},
-            "screen_capture_status": {"granted": True},
-        }
+    runtime = StubRuntime(
+        status={"accessibility": True, "screen_recording": True}
     )
-    runtime = MacOSComputerRuntime(stub)  # type: ignore[arg-type]
     app = await _build_application(
         tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
     )
     try:
         result = await computer_rpc.computer_status({}, _ctx(app))
         assert result["available"] is True
-        assert result["runtime"] == "macos"
+        assert result["runtime"] == "windows"
+        assert result["helper_path"] is None
         assert result["permissions"] == {
             "accessibility": "granted",
             "screen_recording": "granted",
         }
-        # status 不应触发 prompt。
-        accessibility_calls = [
-            params for m, params in stub.calls if m == "accessibility_status"
-        ]
-        assert accessibility_calls == [{}]
+        # status 是只读轮询：不触发权限请求。
+        assert runtime.requested == []
+        assert runtime.status_calls == 1
     finally:
         await app.close()
 
 
 async def test_status_reports_missing_permissions(tmp_path) -> None:
-    stub = StubHelperClient(
-        per_method={
-            "accessibility_status": {"trusted": True},
-            "screen_capture_status": {"granted": False},
-        }
+    runtime = StubRuntime(
+        status={"accessibility": True, "screen_recording": False}
     )
-    runtime = MacOSComputerRuntime(stub)  # type: ignore[arg-type]
     app = await _build_application(
         tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
     )
@@ -270,14 +280,23 @@ async def test_status_reports_missing_permissions(tmp_path) -> None:
         await app.close()
 
 
-async def test_status_unknown_when_helper_errors(tmp_path) -> None:
-    stub = StubHelperClient(
-        per_method={
-            "accessibility_status": RuntimeError("boom"),
-            "screen_capture_status": RuntimeError("boom"),
-        }
+async def test_status_unknown_for_missing_keys(tmp_path) -> None:
+    runtime = StubRuntime(status={"accessibility": True})
+    app = await _build_application(
+        tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
     )
-    runtime = MacOSComputerRuntime(stub)  # type: ignore[arg-type]
+    try:
+        result = await computer_rpc.computer_status({}, _ctx(app))
+        assert result["permissions"] == {
+            "accessibility": "granted",
+            "screen_recording": "unknown",
+        }
+    finally:
+        await app.close()
+
+
+async def test_status_unknown_when_runtime_errors(tmp_path) -> None:
+    runtime = StubRuntime(status_error=RuntimeError("boom"))
     app = await _build_application(
         tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
     )
@@ -291,19 +310,48 @@ async def test_status_unknown_when_helper_errors(tmp_path) -> None:
         await app.close()
 
 
+async def test_status_unknown_without_permission_status(tmp_path) -> None:
+    app = await _build_application(
+        tmp_path,
+        computer_runtime=NoPermissionRuntime(),
+        computer_host_status=_available_status(),
+    )
+    try:
+        result = await computer_rpc.computer_status({}, _ctx(app))
+        assert result["permissions"] == {
+            "accessibility": "unknown",
+            "screen_recording": "unknown",
+        }
+    finally:
+        await app.close()
+
+
+async def test_status_supports_async_permission_status(tmp_path) -> None:
+    runtime = AsyncStubRuntime(
+        {"accessibility": True, "screen_recording": False}
+    )
+    app = await _build_application(
+        tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
+    )
+    try:
+        result = await computer_rpc.computer_status({}, _ctx(app))
+        assert result["permissions"] == {
+            "accessibility": "granted",
+            "screen_recording": "required",
+        }
+    finally:
+        await app.close()
+
+
 # ---------------------------------------------------------------------------
 # computer.request_permission
 # ---------------------------------------------------------------------------
 
 
 async def test_request_permission_accessibility(tmp_path) -> None:
-    stub = StubHelperClient(
-        per_method={
-            "accessibility_status": {"trusted": False},
-            "screen_capture_status": {"granted": True},
-        }
+    runtime = StubRuntime(
+        status={"accessibility": False, "screen_recording": True}
     )
-    runtime = MacOSComputerRuntime(stub)  # type: ignore[arg-type]
     app = await _build_application(
         tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
     )
@@ -312,19 +360,15 @@ async def test_request_permission_accessibility(tmp_path) -> None:
             {"permission": "accessibility"}, _ctx(app)
         )
         assert result["permissions"]["accessibility"] == "required"
-        assert ("accessibility_status", {"prompt": True}) in stub.calls
+        assert runtime.requested == ["accessibility"]
     finally:
         await app.close()
 
 
 async def test_request_permission_screen_recording(tmp_path) -> None:
-    stub = StubHelperClient(
-        per_method={
-            "accessibility_status": {"trusted": True},
-            "screen_capture_status": {"granted": True},
-        }
+    runtime = StubRuntime(
+        status={"accessibility": True, "screen_recording": True}
     )
-    runtime = MacOSComputerRuntime(stub)  # type: ignore[arg-type]
     app = await _build_application(
         tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
     )
@@ -332,7 +376,56 @@ async def test_request_permission_screen_recording(tmp_path) -> None:
         await computer_rpc.computer_request_permission(
             {"permission": "screen_recording"}, _ctx(app)
         )
-        assert ("screen_capture_status", {"prompt": True}) in stub.calls
+        assert runtime.requested == ["screen_recording"]
+    finally:
+        await app.close()
+
+
+async def test_request_permission_without_runtime_handler(tmp_path) -> None:
+    # Windows V1 无系统级权限申请：runtime 未实现 request_permission 时
+    # 不报错，只刷新状态。
+    app = await _build_application(
+        tmp_path,
+        computer_runtime=NoPermissionRuntime(),
+        computer_host_status=_available_status(),
+    )
+    try:
+        result = await computer_rpc.computer_request_permission(
+            {"permission": "accessibility"}, _ctx(app)
+        )
+        assert result["permissions"] == {
+            "accessibility": "unknown",
+            "screen_recording": "unknown",
+        }
+    finally:
+        await app.close()
+
+
+async def test_request_permission_runtime_error(tmp_path) -> None:
+    runtime = StubRuntime(request_result=RuntimeError("boom"))
+    app = await _build_application(
+        tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
+    )
+    try:
+        with pytest.raises(JsonRpcError) as exc:
+            await computer_rpc.computer_request_permission(
+                {"permission": "accessibility"}, _ctx(app)
+            )
+        assert exc.value.code == RpcErrorCode.INTERNAL_ERROR
+    finally:
+        await app.close()
+
+
+async def test_request_permission_supports_async_runtime(tmp_path) -> None:
+    runtime = AsyncStubRuntime({"accessibility": True, "screen_recording": True})
+    app = await _build_application(
+        tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
+    )
+    try:
+        await computer_rpc.computer_request_permission(
+            {"permission": "accessibility"}, _ctx(app)
+        )
+        assert runtime.requested == ["accessibility"]
     finally:
         await app.close()
 
@@ -460,8 +553,7 @@ async def test_latest_observation_none_when_no_observation(tmp_path) -> None:
 
 
 async def test_latest_observation_uses_lease_owner_when_no_run_id(tmp_path) -> None:
-    stub = StubHelperClient()
-    runtime = MacOSComputerRuntime(stub)  # type: ignore[arg-type]
+    runtime = StubRuntime()
     app = await _build_application(
         tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
     )

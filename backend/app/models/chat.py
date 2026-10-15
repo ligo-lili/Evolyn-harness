@@ -1,10 +1,10 @@
-"""通过已配置的模型适配器进行交互式多轮聊天。
+r"""通过已配置的模型适配器进行交互式多轮聊天。
 
-在 backend 目录运行：
+在 backend 目录运行（Windows）：
 
-    .venv/bin/python -m app
-    .venv/bin/python -m app --setup
-    .venv/bin/python -m app.models.chat
+    .venv\Scripts\python -m app
+    .venv\Scripts\python -m app --setup
+    .venv\Scripts\python -m app.models.chat
 """
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ async def _send_message(
     content: str,
     model: str,
 ) -> tuple[bool, Conversation]:
-    print("Vesta 正在思考...", flush=True)
+    print("Evolyn 正在思考...", flush=True)
 
     try:
         dispatch = await conversation_service.dispatch(
@@ -138,7 +138,7 @@ async def _send_message(
         )
     except KeyboardInterrupt:
         # 用户 Ctrl+C：ConversationService 已尽力 cancel 当前 Run，
-        # 回到输入循环，不退出 Vesta。
+        # 回到输入循环，不退出 Evolyn。
         print("\n[cancel] 已取消当前 Run。")
         return False, conversation
 
@@ -151,7 +151,7 @@ async def _send_message(
             title_from_content(content),
         )
     answer = result.content or "<模型未返回文本>"
-    print(f"\nVesta> {answer.strip()}")
+    print(f"\nEvolyn> {answer.strip()}")
     stop_reason = dispatch.run.stop_reason or result.stop_reason.value
     provider_name = provider.value if isinstance(provider, ModelProvider) else provider
     print(
@@ -645,7 +645,7 @@ async def _run(
             return 0
         print(f"启动失败：{exc}", file=sys.stderr)
         print(
-            "请运行 `.venv/bin/python -m app --setup` 完成模型配置。",
+            "请运行 `.venv\\Scripts\\python -m app --setup` 完成模型配置。",
             file=sys.stderr,
         )
         return 2
@@ -1066,7 +1066,7 @@ async def _run(
                 continue
             if content == "/setup":
                 print("模型设置在下次启动时生效。请退出后运行：")
-                print("  .venv/bin/python -m app --setup")
+                print("  .venv\\Scripts\\python -m app --setup")
                 continue
             if content == "/help":
                 print(_HELP_TEXT)
@@ -1089,7 +1089,7 @@ async def _run(
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python -m app",
-        description="启动 Vesta CLI，或完成首次模型设置。",
+        description="启动 Evolyn CLI，或完成首次模型设置。",
     )
     parser.add_argument(
         "-p",
@@ -1105,7 +1105,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--setup",
         action="store_true",
-        help="启动交互式模型设置，密钥优先保存到 macOS Keychain。",
+        help="启动交互式模型设置，密钥优先保存到 Windows 凭据管理器。",
     )
     parser.add_argument(
         "--system",

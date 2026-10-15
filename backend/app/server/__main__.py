@@ -1,4 +1,4 @@
-"""Vesta Host 入口：``python -m app.server``。"""
+"""Evolyn Host 入口：``python -m app.server``。"""
 
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ from typing import Any
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the Vesta Host (FastAPI + JSON-RPC WebSocket)."
+        description="Run the Evolyn Host (FastAPI + JSON-RPC WebSocket)."
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument(
         "--database",
-        help="SQLite database path (default: backend/.vesta/vesta.db).",
+        help="SQLite database path (default: backend/.evolyn/evolyn.db).",
     )
     parser.add_argument("--provider", help="Model provider (default: auto-select).")
     parser.add_argument("--model", help="Override the configured model name.")
@@ -26,13 +26,9 @@ def _parser() -> argparse.ArgumentParser:
         help="Path to the MCP Server JSON configuration file.",
     )
     parser.add_argument(
-        "--computer-helper",
-        help="Explicit Swift helper binary path (overrides env/dev auto-detect).",
-    )
-    parser.add_argument(
         "--disable-computer",
         action="store_true",
-        help="Disable Computer Runtime even if a helper is available.",
+        help="Disable Computer Runtime even if the Windows dependencies are available.",
     )
     return parser
 
@@ -40,7 +36,7 @@ def _parser() -> argparse.ArgumentParser:
 def _application_kwargs(args: argparse.Namespace) -> dict[str, object]:
     """按同一份启动参数为每次Host实例构造依赖。"""
 
-    from app.computer import build_macos_computer
+    from app.computer import build_computer
 
     application_kwargs: dict[str, object] = {}
     if args.database:
@@ -48,8 +44,7 @@ def _application_kwargs(args: argparse.Namespace) -> dict[str, object]:
     if args.mcp_config:
         application_kwargs["mcp_config"] = args.mcp_config
 
-    computer_runtime, computer_host_status = build_macos_computer(
-        helper_path=args.computer_helper,
+    computer_runtime, computer_host_status = build_computer(
         enabled=False if args.disable_computer else None,
     )
     application_kwargs["computer_runtime"] = computer_runtime
@@ -96,8 +91,8 @@ async def _serve(args: argparse.Namespace) -> int:
         await server.serve()
         if not restart_requested:
             return 0
-        logging.getLogger("vesta.server").info(
-            "Restarting Vesta Host with saved configuration"
+        logging.getLogger("evolyn.server").info(
+            "Restarting Evolyn Host with saved configuration"
         )
 
 

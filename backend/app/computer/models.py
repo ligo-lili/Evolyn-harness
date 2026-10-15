@@ -1,12 +1,12 @@
-"""Computer Runtime V0 领域模型（纯数据结构，不依赖真实 macOS）。
+"""Computer Runtime V0 领域模型（纯数据结构，不依赖真实系统实现）。
 
 这些类型只表达"一次屏幕观察 / 一个交互目标 / 一次操作结果"的契约，
-不包含任何 AXUIElement / ScreenCaptureKit / CGEvent 等系统实现。
+不包含任何 UIAutomation / Win32 / SendInput 等系统实现。
 
 关键约定：
 - ``Bounds`` 是统一的矩形结构（x/y/width/height），不用 tuple/list 表达；
 - ``CoordinateTarget.x/y`` 是 observation screenshot coordinate（截图坐标系），
-  V0 不做 Retina / macOS 坐标换算；
+  V0 不做跨屏 / DPI 缩放坐标换算；
 - ``ElementTarget`` 必须绑定 ``observation_id`` —— element ref 只在对应
   Observation 内有效，不能被当成永久 UI ID。
 """
@@ -41,7 +41,7 @@ class DeliveryStatus(StrEnum):
 
 
 class VerificationStatus(StrEnum):
-    """动作对界面造成的效果是否已经通过 AX 状态确认。"""
+    """动作对界面造成的效果是否已经通过 UI 状态确认。"""
 
     NOT_APPLICABLE = "not_applicable"
     VERIFIED = "verified"
@@ -127,7 +127,7 @@ class Element(BaseModel):
     focused: bool = False
     editable: bool = False
     bounds: Bounds | None = None
-    # 元素可执行的动作（AX 语义，如 "press" / "select"），与
+    # 元素可执行的动作（UIA Pattern 语义，如 "press" / "select"），与
     # ComputerRuntime 的 ActionName 是不同词汇表，因此用字符串表达。
     actions: tuple[str, ...] = ()
 
@@ -141,7 +141,7 @@ class Element(BaseModel):
 
 
 class ElementStats(BaseModel):
-    """AX 遍历与输出预算统计，帮助模型识别观察是否完整。"""
+    """UIA 遍历与输出预算统计，帮助模型识别观察是否完整。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -163,7 +163,7 @@ class Observation(BaseModel):
     """一次屏幕观察的结构化快照。
 
     语义分离：
-    - ``target``：Agent 正在操作的 Session Target（AX Tree / 截图的来源）；
+    - ``target``：Agent 正在操作的 Session Target（UIA Tree / 截图的来源）；
     - ``user_frontmost_app``：用户当前正在使用的 App（可以与 target 不同）；
     - ``active_app``：兼容别名（等于 target，V2 起不建议再依赖）。
     """
@@ -225,7 +225,7 @@ class CoordinateTarget(BaseModel):
     """引用某次 Observation 截图坐标。
 
     语义：``x / y`` 是 observation screenshot coordinate（截图坐标系），
-    不是全局屏幕坐标。V0 不实现 Retina / macOS 坐标换算。
+    不是全局屏幕坐标。V0 不实现跨屏 / DPI 缩放坐标换算。
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -250,8 +250,9 @@ Target = ElementTarget | CoordinateTarget
 class ActionResult(BaseModel):
     """一次 ComputerRuntime 动作的结果（轻量，不做复杂异常体系）。
 
-    ``method``：实际执行路径（ax_press / ax_set_value / cg_event_pid /
-    foreground_cg_event / coordinate）；
+    ``method``：实际执行路径（invoke_pattern / value_pattern /
+    coordinate_fallback / sendinput / set_foreground_window / popen /
+    shell_startfile）；
     ``execution_mode``：background / foreground_fallback。
     """
 
