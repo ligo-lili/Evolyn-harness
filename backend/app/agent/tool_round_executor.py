@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+import json
+from dataclasses import dataclass, field
 
 from app.checkpoint import SQLiteCheckpointStore
-from app.models.types import AgentMode, Message, MessageRole, ToolCall, ToolResult
+from app.models.types import (
+    AgentMode,
+    Message,
+    MessageRole,
+    ModelUsage,
+    ToolCall,
+    ToolResult,
+    add_model_usage,
+)
 from app.skills import SKILL_READ_TOOL_NAME
 from app.tools.catalog import TOOL_SEARCH_NAME, activated_tool_names
 from app.tools.executor import ToolExecutor
@@ -38,6 +48,8 @@ class ToolRoundOutcome:
     plan_task_created: bool
     plan_task_id: str | None
     repeated_error: RepeatedToolCallError | None = None
+    # 可并行工具（如委派子代理）自报的模型用量，由 Agent Loop 回流父 Run 预算。
+    usage: ModelUsage = field(default_factory=ModelUsage)
 
 
 class ToolRoundExecutor:
@@ -49,10 +61,12 @@ class ToolRoundExecutor:
         registry: ToolRegistry,
         executor: ToolExecutor,
         checkpoint_store: SQLiteCheckpointStore | None,
+        parallel_tool_names: frozenset[str] = frozenset(),
     ) -> None:
         self._registry = registry
         self._executor = executor
         self._checkpoint_store = checkpoint_store
+        self._parallel_tool_names = frozenset(parallel_tool_names)
 
     async def execute(
         self,
@@ -83,6 +97,7 @@ class ToolRoundExecutor:
         pending_activations: set[str] = set()
         plan_task_created = False
         plan_task_id: str | None = None
+        round_usage = ModelUsage()
 
         if self._checkpoint_store is not None:
             await self._checkpoint_store.before_tools(
@@ -91,6 +106,9 @@ class ToolRoundExecutor:
                 tool_calls=tool_calls,
             )
 
+        # 阶段一：重复调用守卫（确定性预扫描）。
+        # 预扫描不派发任何工具：同一模型响应里只要存在第 3 次重复调用，整轮
+        # 都不会先执行前半部分再停，避免"停得下去但副作用已经发生"。
         for tool_call in tool_calls:
             signature = tool_call_signature(tool_call)
             if signature == previous_signature:
@@ -112,20 +130,33 @@ class ToolRoundExecutor:
                     repeated_error=RepeatedToolCallError(tool_call.name),
                 )
 
-            context = ToolExecutionContext(
+        # 阶段二：分派。并行组（配置允许并发的工具，例如委派子代理）并发
+        # 执行，其余按调用顺序执行；执行顺序不影响阶段三的归并顺序。
+        results: list[ToolResult | None] = [None] * len(tool_calls)
+
+        def build_context(tool_call: ToolCall) -> ToolExecutionContext:
+            return ToolExecutionContext(
                 run_id=run_id,
                 conversation_id=conversation_id,
                 user_input=user_input,
                 step=step,
                 tool_call=tool_call,
                 metadata={
-                    "active_skill_names": context_session.active_skill_names
+                    "active_skill_names": context_session.active_skill_names,
+                    # 子代理 runner 通过 metadata 读取父 Run 的委派上下文：
+                    # 事件发射器、已注入的 memory 消息与 Active Skill 工具范围。
+                    "agent_emitter": emitter,
+                    "memory_messages": context_session.memory_messages,
+                    "skill_tool_scope": skill_tool_scope,
                 },
                 mode=mode,
             )
-            result = await self._execute_one(
+
+        async def dispatch(index: int) -> None:
+            tool_call = tool_calls[index]
+            results[index] = await self._execute_one(
                 tool_call,
-                context=context,
+                context=build_context(tool_call),
                 hook=hook,
                 mode=mode,
                 closing_can_deliver=closing_can_deliver,
@@ -133,6 +164,26 @@ class ToolRoundExecutor:
                 computer_halted=computer_halted,
                 skill_tool_scope=skill_tool_scope,
             )
+
+        parallel_indices = [
+            index
+            for index, tool_call in enumerate(tool_calls)
+            if tool_call.name in self._parallel_tool_names
+        ]
+        if parallel_indices:
+            await asyncio.gather(
+                *(dispatch(index) for index in parallel_indices)
+            )
+        for index in range(len(tool_calls)):
+            if results[index] is None:
+                await dispatch(index)
+
+        # 阶段三：按原始调用顺序归并状态（守卫、Checkpoint、记录、激活）。
+        for index, tool_call in enumerate(tool_calls):
+            result = results[index]
+            if result is None:  # pragma: no cover - 分派阶段保证非空
+                continue
+
             guard_decision = computer_guard.record(tool_call, result)
             if guard_decision.feedback:
                 result = result.model_copy(
@@ -168,6 +219,12 @@ class ToolRoundExecutor:
             )
             result_messages.append(self._result_message(result))
 
+            if tool_call.name in self._parallel_tool_names:
+                round_usage = add_model_usage(
+                    round_usage,
+                    reported_tool_usage(result),
+                )
+
             if tool_call.name == "computer_type" and result.success:
                 computer_verification_pending = (
                     computer_verification_status(result.output) == "unverified"
@@ -201,6 +258,7 @@ class ToolRoundExecutor:
             computer_verification_pending=computer_verification_pending,
             plan_task_created=plan_task_created,
             plan_task_id=plan_task_id,
+            usage=round_usage,
         )
 
     async def _execute_one(
@@ -263,6 +321,12 @@ class ToolRoundExecutor:
         computer_halted: bool,
         skill_tool_scope: frozenset[str] | None = None,
     ) -> str | None:
+        try:
+            self._registry.get(tool_call.name)
+        except KeyError:
+            # 执行层成员硬边界：不在当前 Round Registry 里的工具不进入执行器
+            # （与 ToolExecutor 的失败语义保持一致，供嵌套执行环境防御）。
+            return f"Tool not found: {tool_call.name}"
         if computer_halted and tool_call.name.startswith("computer_"):
             return (
                 "computer_attempts_halted: repeated failures without desktop "
@@ -311,4 +375,28 @@ class ToolRoundExecutor:
         )
 
 
-__all__ = ["ToolRoundExecutor", "ToolRoundOutcome"]
+def reported_tool_usage(result: ToolResult) -> ModelUsage:
+    """读取并行工具在 JSON 输出里自报的模型用量。
+
+    委派类工具（子代理）没有独立的预算账本：用量随结构化结果回流，由 Agent
+    Loop 累加进父 Run。不可解析或字段不合法时按零处理，绝不猜测。
+    """
+
+    if not result.success or not result.output:
+        return ModelUsage()
+    try:
+        payload = json.loads(result.output)
+    except (TypeError, ValueError):
+        return ModelUsage()
+    if not isinstance(payload, dict):
+        return ModelUsage()
+    raw_usage = payload.get("usage")
+    if not isinstance(raw_usage, dict):
+        return ModelUsage()
+    try:
+        return ModelUsage.model_validate(raw_usage)
+    except Exception:
+        return ModelUsage()
+
+
+__all__ = ["ToolRoundExecutor", "ToolRoundOutcome", "reported_tool_usage"]

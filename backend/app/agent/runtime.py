@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import suppress
 from uuid import uuid4
@@ -41,6 +42,7 @@ from app.tools.registry import ToolRegistry
 from .budget import (
     RunBudget,
     RunBudgetConfig,
+    RunBudgetMessages,
 )
 from .event_stream import (
     STREAM_FINISHED as _STREAM_FINISHED,
@@ -96,6 +98,10 @@ class AgentRuntime:
         tool_output_recorder: ToolOutputRecorder | None = None,
         post_run_submit: Callable[..., PostRunSubmitResult] | None = None,
         run_budget_config: RunBudgetConfig | None = None,
+        terminal_tool_names: frozenset[str] = frozenset(),
+        parallel_tool_names: frozenset[str] = frozenset(),
+        run_budget_messages: RunBudgetMessages | None = None,
+        run_finalizers: Sequence[Callable[[str], object]] = (),
     ) -> None:
         if max_steps < 1:
             raise ValueError("max_steps must be at least 1")
@@ -127,6 +133,9 @@ class AgentRuntime:
             submit=post_run_submit,
         )
         self._run_budget = RunBudget(run_budget_config)
+        # Run 结束收尾钩子（同步或异步，接收 run_id）：用于清理按 Run 计数 /
+        # 缓存的旁路状态（例如子代理调用配额）。
+        self._run_finalizers = tuple(run_finalizers)
         self._tool_executor = tool_executor or ToolExecutor(
             tool_registry,
             approval_gate=approval_gate,
@@ -152,7 +161,19 @@ class AgentRuntime:
             skill_store=skill_store,
             skill_context_provider=skill_context_provider,
             run_budget=self._run_budget,
+            terminal_tool_names=terminal_tool_names,
+            parallel_tool_names=parallel_tool_names,
+            run_budget_messages=run_budget_messages,
         )
+
+    def add_run_finalizer(self, finalizer: Callable[[str], object]) -> None:
+        """后置注册 Run 结束收尾钩子。
+
+        用于装配顺序上晚于 AgentRuntime 构造的依赖（例如子代理 runner 的
+        每 Run 配额清理）。
+        """
+
+        self._run_finalizers = (*self._run_finalizers, finalizer)
 
     @property
     def tool_executor(self) -> ToolExecutor:
@@ -279,6 +300,11 @@ class AgentRuntime:
         finally:
             with suppress(Exception):
                 await self._tool_executor.clear_run_rules(run_id)
+            for finalizer in self._run_finalizers:
+                with suppress(Exception):
+                    outcome = finalizer(run_id)
+                    if inspect.isawaitable(outcome):
+                        await outcome
 
     async def run_stream(
         self,

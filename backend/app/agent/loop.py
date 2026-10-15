@@ -25,7 +25,12 @@ from app.tools.catalog import (
 from app.tools.executor import ToolExecutor
 from app.tools.registry import ToolRegistry
 
-from .budget import RunBudget, RunBudgetStatus, chargeable_tokens
+from .budget import (
+    RunBudget,
+    RunBudgetMessages,
+    RunBudgetStatus,
+    chargeable_tokens,
+)
 from .computer_guard import ComputerStagnationGuard
 from .context_session import RuntimeContextSession
 from .errors import (
@@ -89,6 +94,11 @@ _RUN_BUDGET_WARNING_MESSAGE = (
     "本 Run 的累计 Main Agent 用量已进入预警区。请减少不必要的重复调查和工具"
     "调用，优先完成当前目标；仍可在确有必要时继续使用工具。"
 )
+DEFAULT_RUN_BUDGET_MESSAGES = RunBudgetMessages(
+    warning=_RUN_BUDGET_WARNING_MESSAGE,
+    finalization=_RUN_BUDGET_FINALIZATION_MESSAGE,
+    closing=_RUN_BUDGET_CLOSING_MESSAGE,
+)
 _TOOL_ROUND_LIMIT_FALLBACK_MESSAGE = (
     "已达到本 Run 的工具调用轮次上限，系统已停止继续执行工具。已有工具结果"
     "仍保留在本轮记录中，但模型未能在无工具模式下生成可靠总结；如需继续，"
@@ -134,6 +144,9 @@ class AgentLoop:
         skill_store: SkillStore | None,
         skill_context_provider: SkillContextProvider | None,
         run_budget: RunBudget,
+        terminal_tool_names: frozenset[str] = frozenset(),
+        parallel_tool_names: frozenset[str] = frozenset(),
+        run_budget_messages: RunBudgetMessages | None = None,
     ) -> None:
         self._model_registry = model_registry
         self._tool_registry = tool_registry
@@ -151,10 +164,18 @@ class AgentLoop:
         self._skill_store = skill_store
         self._skill_context_provider = skill_context_provider
         self._run_budget = run_budget
+        # 终局工具：成功调用即视为交付完成，立即结束本循环（不再多耗一次
+        # 模型调用）。子代理用 submit_result 走这条路径。
+        self._terminal_tool_names = frozenset(terminal_tool_names)
+        # 允许在同一工具轮内并发执行的工具（如委派子代理）；并发上限由工具
+        # 自身的实现（runner 信号量）控制，本循环只负责分组与顺序归并。
+        self._parallel_tool_names = frozenset(parallel_tool_names)
+        self._budget_messages = run_budget_messages or DEFAULT_RUN_BUDGET_MESSAGES
         self._tool_round_executor = ToolRoundExecutor(
             registry=tool_registry,
             executor=tool_executor,
             checkpoint_store=checkpoint_store,
+            parallel_tool_names=self._parallel_tool_names,
         )
 
     async def run(
@@ -442,7 +463,7 @@ class AgentLoop:
                     trailing_system_messages.append(
                         Message(
                             role=MessageRole.SYSTEM,
-                            content=_RUN_BUDGET_WARNING_MESSAGE,
+                            content=self._budget_messages.warning,
                         )
                     )
                 context_injection = await context_session.build(
@@ -462,7 +483,7 @@ class AgentLoop:
                         *request_messages,
                         Message(
                             role=MessageRole.SYSTEM,
-                            content=_RUN_BUDGET_CLOSING_MESSAGE,
+                            content=self._budget_messages.closing,
                         ),
                     )
                 elif force_final_answer:
@@ -473,7 +494,7 @@ class AgentLoop:
                             "已经完成的部分和用户可采取的恢复步骤。"
                         )
                     elif budget_forces_final:
-                        final_instruction = _RUN_BUDGET_FINALIZATION_MESSAGE
+                        final_instruction = self._budget_messages.finalization
                     else:
                         final_instruction = (
                             "工具调用轮次已用完。请读取最后一条工具结果，停止"
@@ -642,7 +663,7 @@ class AgentLoop:
                     *request_messages,
                     Message(
                         role=MessageRole.SYSTEM,
-                        content=_RUN_BUDGET_WARNING_MESSAGE,
+                        content=self._budget_messages.warning,
                     ),
                 )
             else:
@@ -672,9 +693,9 @@ class AgentLoop:
                     Message(
                         role=MessageRole.SYSTEM,
                         content=(
-                            _RUN_BUDGET_CLOSING_MESSAGE
+                            self._budget_messages.closing
                             if closing_can_deliver
-                            else _RUN_BUDGET_FINALIZATION_MESSAGE
+                            else self._budget_messages.finalization
                         ),
                     ),
                 )
@@ -1027,6 +1048,10 @@ class AgentLoop:
                 hook=tool_event_hook,
             )
             tool_calls.extend(round_outcome.records)
+            # 并行工具（子代理）自报的用量回流父 Run 预算：委派不产生预算豁免。
+            usage = add_usage(usage, round_outcome.usage)
+            budget_chargeable_tokens += chargeable_tokens(round_outcome.usage)
+            main_model_calls += round_outcome.usage.model_calls
             messages.extend(round_outcome.result_messages)
             previous_signature = round_outcome.previous_signature
             repeated_count = round_outcome.repeated_count
@@ -1063,6 +1088,38 @@ class AgentLoop:
                     records=tuple(round_records),
                 )
             )
+            if self._terminal_tool_names:
+                delivered = next(
+                    (
+                        record
+                        for record in reversed(round_outcome.records)
+                        if record.tool_call.name in self._terminal_tool_names
+                        and record.result.success
+                    ),
+                    None,
+                )
+                if delivered is not None:
+                    # 终局工具成功即交付完成：立即结束循环，不再多耗一次模型
+                    # 调用；未提交结果由调用方按 `submitted=false` 判定。
+                    final_message = assistant_message
+                    if not (assistant_message.content or "").strip():
+                        final_message = Message(
+                            role=MessageRole.ASSISTANT,
+                            content="结果已提交。",
+                        )
+                        messages.append(final_message)
+                    return self._result(
+                        run_id=run_id,
+                        final_message=final_message,
+                        messages=messages,
+                        steps=step,
+                        stop_reason=AgentStopReason.FINAL_ANSWER,
+                        tool_rounds=tool_rounds,
+                        tool_calls=tool_calls,
+                        usage=usage,
+                        summary_state=current_summary_state,
+                        plan_task_id=plan_task_id,
+                    )
             if closing_can_deliver:
                 # Closing 最多保留一次交付工具轮；下一请求只负责汇报结果。
                 budget_closing_delivery_used = True

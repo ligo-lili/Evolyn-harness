@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
@@ -11,6 +12,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.models.types import ModelUsage
 
 _BACKEND_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
+
+@dataclass(frozen=True, slots=True)
+class RunBudgetMessages:
+    """预算三档注入模型请求的提示文案。
+
+    主循环使用仓库默认文案；子代理等嵌套循环可覆盖，以贴合自身的收口协议
+    （例如要求用交付工具提交结果而不是自由文本收尾）。
+    """
+
+    warning: str
+    finalization: str
+    closing: str
 
 
 class RunBudgetStatus(StrEnum):
@@ -189,6 +203,7 @@ __all__ = [
     "RunBudget",
     "RunBudgetConfig",
     "RunBudgetDecision",
+    "RunBudgetMessages",
     "RunBudgetReason",
     "RunBudgetStatus",
     "chargeable_tokens",

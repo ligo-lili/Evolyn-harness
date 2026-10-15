@@ -68,6 +68,16 @@ class RuntimeContextSession:
         return tuple(self._active_skills)
 
     @property
+    def memory_messages(self) -> tuple[Message, ...]:
+        """本 Run 已缓存的 Memory 注入消息（Core / Recall 或 INDEX / Policy）。
+
+        由子代理 runner 只读转发（单一事实来源，零二次检索）；Policy 消息
+        由转发方按约定过滤，不进入子代理上下文。
+        """
+
+        return self._memory_messages
+
+    @property
     def active_skill_tool_scope(self) -> frozenset[str] | None:
         """Active Skill 声明的 allowed-tools 收窄范围（交集）。
 

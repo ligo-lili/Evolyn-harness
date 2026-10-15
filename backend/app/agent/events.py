@@ -40,6 +40,9 @@ class AgentEventType(StrEnum):
     MEMORY_MAINTENANCE_SKIPPED = "memory_maintenance_skipped"
     SKILL_ACTIVATED = "skill_activated"
     SKILL_ACTIVATION_FAILED = "skill_activation_failed"
+    SUBAGENT_STARTED = "subagent_started"
+    SUBAGENT_COMPLETED = "subagent_completed"
+    SUBAGENT_FAILED = "subagent_failed"
     AGENT_COMPLETED = "agent_completed"
     AGENT_FAILED = "agent_failed"
     AGENT_CANCELLED = "agent_cancelled"
@@ -143,6 +146,13 @@ class AgentEvent(BaseModel):
     active_skill_names: tuple[str, ...] = ()
     active_skill_tokens: int | None = Field(default=None, ge=0)
     active_skill_message_names: tuple[str, ...] = ()
+    # Sub-Agent 委派观测字段（父 Run 只记摘要；子循环内部事件走独立 run_id
+    # 命名空间持久化，不广播）。
+    subagent_id: str | None = None
+    subagent_grants_requested: tuple[str, ...] = ()
+    subagent_grants: tuple[str, ...] = ()
+    subagent_memory: str | None = None
+    subagent_truncated: bool | None = None
     # Memory 自动召回观测字段（每 Run 一次检索的候选与实际融合模式）。
     recall_candidate_ids: tuple[str, ...] = ()
     recall_mode: str | None = None

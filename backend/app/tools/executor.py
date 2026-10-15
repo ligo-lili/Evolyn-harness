@@ -101,6 +101,19 @@ class ToolExecutor:
 
         return await self._permission_hook.clear_run_rules(run_id)
 
+    def rebind(self, registry: ToolRegistry) -> ToolExecutor:
+        """派生一个绑定到另一工具注册表的执行器副本。
+
+        权限 Hook、审批门、观察 Hook、日志器与输出记录器全部与原实例共享：
+        子代理等嵌套执行因此仍落在同一 Run 的权限、审批与证据边界内，而不是
+        退回默认（无审批、无证据）的执行环境。
+        """
+
+        clone = object.__new__(ToolExecutor)
+        clone.__dict__.update(self.__dict__)
+        clone._registry = registry
+        return clone
+
     async def execute(
         self,
         tool_call: ToolCall,
@@ -216,13 +229,14 @@ class ToolExecutor:
                 started_at,
             )
 
+        timeout_seconds = tool.definition.timeout_seconds or self._timeout_seconds
         try:
-            async with asyncio.timeout(self._timeout_seconds):
+            async with asyncio.timeout(timeout_seconds):
                 output = await tool.execute_with_context(arguments, context)
         except TimeoutError:
             return self._failure(
                 tool_call,
-                f"Tool timed out after {self._timeout_seconds:g} seconds.",
+                f"Tool timed out after {timeout_seconds:g} seconds.",
                 started_at,
             )
         except (KeyError, TypeError, ValueError) as exc:

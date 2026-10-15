@@ -106,6 +106,10 @@ class ToolDefinition(BaseModel):
     # 是否把成功输出归档为不可变 Evidence；管理/回读工具应显式关闭，避免
     # 递归归档和重复数据。仅由 Harness 使用，不发送给模型提供商。
     record_output: bool = True
+    # 单次执行的超时覆盖（秒）；None 表示使用执行器默认超时。长时间运行的
+    # 工具（如委派子代理）用它表达自身墙钟边界。仅由 Harness 使用，不发送
+    # 给模型提供商。
+    timeout_seconds: float | None = Field(default=None, gt=0)
 
 
 class ToolResult(BaseModel):

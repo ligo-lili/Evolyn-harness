@@ -15,6 +15,8 @@ _AMBIENT_ENVIRONMENT_KEYS = (
     "TAVILY_API_KEY",
     "EVOLYN_SHELL",
     "EVOLYN_SANDBOX_LOW_IL",
+    # Sub-Agent 开关：离线测试默认必须启用，避免开发者机器配置干扰。
+    "SUBAGENT_ENABLED",
 )
 
 

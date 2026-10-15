@@ -116,6 +116,12 @@ from app.skills.discovery import (
     DEFAULT_PROJECT_SKILLS_DIR,
     DEFAULT_USER_SKILLS_DIR,
 )
+from app.subagent import (
+    SUBAGENT_TOOL_NAME,
+    SubAgentRunner,
+    SubagentSettings,
+    SubAgentTool,
+)
 from app.task import (
     DEFAULT_TASKS_DIR,
     FileTaskStore,
@@ -127,6 +133,7 @@ from app.tools import (
     ConsoleApprovalGate,
     PermissionPolicyEngine,
     SQLitePermissionRuleStore,
+    ToolExecutor,
     ToolRegistry,
     build_builtin_tool_registry,
     describe_safe_rule,
@@ -161,6 +168,11 @@ DEFAULT_SYSTEM_PROMPT = (
     "当摘要缺少旧对话中的用户约束或决定时，用 tool_search 激活 history_search/"
     "history_read；当历史工具输出被截断、清理或摘要时，激活 evidence_search/"
     "evidence_read 按需取回不可变原文。无法取回时如实说明，不要凭摘要补造。"
+    "需要大量独立调查（多文件阅读、多来源核实、批量整理）时，用 tool_search "
+    "激活 subagent_run，把自包含的调查任务连同显式授予的只读能力（如 "
+    "read_repo、web_search、web_fetch:域名）委派给子代理：子代理看不到本"
+    "对话，任务说明必须完整；返回 truncated=true 时依据 uncovered_scope "
+    "决定继续委派（缩小范围）还是自己接手，不要把未完成的调查当作已完成。"
     "如果生成了用户需要保留、下载或查看的文件（如报告、CSV、代码、图片），"
     "在最终回答前调用 artifact_publish 发布它；如果最终交付的是结果链接，"
     "也用 artifact_publish 发布。普通中间文件、临时文件、Trace、"
@@ -362,6 +374,7 @@ class Application:
         self.mcp_statuses: tuple[Any, ...] = ()
         self.mcp_error: str | None = None
         self.runtime: AgentRuntime | None = None
+        self.subagent_runner: SubAgentRunner | None = None
         self.run_store: SQLiteRunStore | None = None
         self.run_manager: RunManager | None = None
         self.conversation_service: ConversationService | None = None
@@ -551,6 +564,36 @@ class Application:
             if summary_config.enabled
             else None
         )
+        conversation_reducer = (
+            ConversationReducer(
+                context_summarizer,
+                keep_recent_conversation_blocks=(
+                    context_settings.context_keep_recent_conversation_blocks
+                ),
+                keep_recent_tool_rounds=(
+                    context_settings.context_keep_recent_tool_rounds
+                ),
+                # 大折叠保护：强制压缩（128K 级跨度）时放宽摘要输出上限。
+                large_fold_span_tokens=(
+                    context_settings.context_large_fold_span_tokens
+                ),
+                large_fold_max_output_tokens=(
+                    context_settings.context_summary_max_output_tokens_large_fold
+                ),
+            )
+            if context_summarizer is not None
+            else None
+        )
+        # 显式装配工具执行器：权限 / 审批 / 证据边界由主循环与子代理执行器
+        # （rebind）共享，是委派复用同一 Run 边界的前提。
+        tool_executor = ToolExecutor(
+            tool_registry,
+            approval_gate=approval_gate,
+            policy_engine=policy_engine,
+            rule_store=rule_store,
+            hooks=computer_hooks,
+            output_recorder=evidence_recorder,
+        )
 
         # MCP：配置缺失 / 损坏时不阻断启动（CLI 会检查 mcp_error 决定退出码）。
         mcp_manager: MCPClientManager | None = None
@@ -571,6 +614,26 @@ class Application:
             MCPStatusTool(mcp_manager, configuration_error=mcp_error)
         )
 
+        # Sub-Agent：显式装配的 runner 与主循环共享执行器与上下文装配；委派
+        # 工具按需暴露（tool_search 激活后进入模型 schema）。
+        subagent_settings = SubagentSettings()
+        subagent_runner = (
+            SubAgentRunner(
+                self.registry,
+                tool_registry,
+                tool_executor=tool_executor,
+                provider=self.provider,
+                model=self.model,
+                context_settings=context_settings,
+                conversation_reducer=conversation_reducer,
+                trace_store=trace_store,
+                workspace_root=self.workspace_root,
+                settings=subagent_settings,
+            )
+            if subagent_settings.enabled
+            else None
+        )
+
         runtime = AgentRuntime(
             self.registry,
             tool_registry,
@@ -580,44 +643,38 @@ class Application:
             max_steps=self.max_steps,
             max_tool_rounds=self.max_tool_rounds,
             max_output_tokens=self.max_output_tokens,
-            approval_gate=approval_gate,
-            policy_engine=policy_engine,
-            rule_store=rule_store,
+            tool_executor=tool_executor,
             context_manager=ContextManager(
                 context_settings=context_settings,
-                conversation_reducer=(
-                    ConversationReducer(
-                        context_summarizer,
-                        keep_recent_conversation_blocks=(
-                            context_settings.context_keep_recent_conversation_blocks
-                        ),
-                        keep_recent_tool_rounds=(
-                            context_settings.context_keep_recent_tool_rounds
-                        ),
-                        # 大折叠保护：强制压缩（128K 级跨度）时放宽摘要输出上限。
-                        large_fold_span_tokens=(
-                            context_settings.context_large_fold_span_tokens
-                        ),
-                        large_fold_max_output_tokens=(
-                            context_settings.context_summary_max_output_tokens_large_fold
-                        ),
-                    )
-                    if context_summarizer is not None
-                    else None
-                ),
+                conversation_reducer=conversation_reducer,
             ),
             task_context_provider=TaskContextProvider(task_store),
-            tool_output_recorder=evidence_recorder,
             checkpoint_store=checkpoint_store,
             memory_manager=memory_manager,
             memory_reflector=memory_reflector,
             memory_maintenance_reflector=memory_maintenance_reflector,
             skill_store=skill_store,
             skill_context_provider=skill_context_provider,
-            tool_hooks=computer_hooks,
             post_run_submit=self.post_run_processor.submit,
             run_budget_config=self._run_budget_config,
+            # 同一轮响应里的多个 subagent_run 并发执行（runner 限流）。
+            parallel_tool_names=(
+                frozenset({SUBAGENT_TOOL_NAME})
+                if subagent_runner is not None
+                else frozenset()
+            ),
+            run_finalizers=(
+                (subagent_runner.release_run,)
+                if subagent_runner is not None
+                else ()
+            ),
         )
+        if subagent_runner is not None:
+            tool_registry.register(
+                SubAgentTool(subagent_runner),
+                deferred=True,
+            )
+        self.subagent_runner = subagent_runner
 
         run_store = SQLiteRunStore(database)
         # Run 终态 finalizer 顺序：先 end ComputerSession（清 target/snapshot），

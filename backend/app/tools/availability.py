@@ -24,6 +24,9 @@ PLAN_MODE_ALLOWED_TOOLS = frozenset(
         "task_update",
         "task_get",
         "task_list",
+        # 委派工具本身只是子代理（V1 能力目录全部只读）的入口；PLAN 下由
+        # runner 按同一白名单收窄子代理能力面，web_fetch 会被自动丢弃。
+        "subagent_run",
     }
 )
 
