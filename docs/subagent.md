@@ -31,10 +31,12 @@ Evolyn 的主 Agent 可以把一部分独立的调查工作委派给**子代理*
 - 能力目录 V1 仅只读三项；能力表结构（解析 → 校验 → scoped registry →
   降级 → 轨迹）可直接扩展（`write_repo`、`run_shell` 属于后续版本）。
 - 授予记录写进轨迹：`SUBAGENT_STARTED` 事件同时携带请求值与生效值，
-  降级/丢弃可见、可审计。
+  降级/丢弃可见、可审计（原因：`plan_mode` / `skill_scope` /
+  `mode_not_allowed`）；被整体收窄掉的能力不进生效值。
 - 包装工具对模型声明 `permission=ALLOWED`（能力已被主 Agent 显式授予，
   无需再审批）；委托执行发生在共享的工具执行环境里，SSRF 防护、工作区
-  边界与既有审批规则照常生效。
+  边界与既有审批规则照常生效。`http_request` 对每一次实际请求（含重定向
+  跳转）逐跳执行 SSRF 校验；跨域重定向不强制回到授予域名。
 - 委派工具 `subagent_run` 本身在 PLAN 模式白名单内（V1 能力目录全为只读，
   委派不产生副作用）；PLAN 下 runner 仍会按同一白名单收窄子代理工具面，
   `web_fetch` 被丢弃并记录 `reason=plan_mode`。

@@ -240,7 +240,7 @@ class SubAgentRunner:
             self._tool_registry,
             self._workspace_root,
         )
-        tools = self._filter_tools(
+        tools, dropped_tools = self._filter_tools(
             tools,
             mode=mode,
             skill_tool_scope=skill_tool_scope,
@@ -250,6 +250,32 @@ class SubAgentRunner:
                 "授予的能力与当前模式 / Active Skill allowed-tools 的交集为空，"
                 "无法启动子代理"
             )
+        # 能力只有在至少一个映射工具存活时才算生效：整体被模式 / Skill 收窄
+        # 掉的能力从生效值、轨迹与系统提示词中剔除，并记录降级原因。
+        surviving_names = {tool.definition.name for tool in tools}
+        surviving_grants: list[CapabilityGrant] = []
+        for grant in effective:
+            mapped = CAPABILITY_CATALOG[grant.name].tools
+            if any(name in surviving_names for name in mapped):
+                surviving_grants.append(grant)
+                continue
+            reason = next(
+                (
+                    dropped_tools[name]
+                    for name in mapped
+                    if name in dropped_tools
+                ),
+                "tool_unavailable",
+            )
+            downgrades = (
+                *downgrades,
+                GrantDowngrade(
+                    requested=grant.spec,
+                    effective=None,
+                    reason=reason,
+                ),
+            )
+        effective = tuple(surviving_grants)
 
         # 配额预留在全部确定性校验之后：被拒绝的委派不消耗次数、不发事件。
         self._reserve_invocation(parent_run_id)
@@ -392,18 +418,24 @@ class SubAgentRunner:
         *,
         mode: AgentMode,
         skill_tool_scope: frozenset[str] | None,
-    ) -> tuple[Any, ...]:
-        """模式白名单与 Active Skill allowed-tools 的硬交集（只收窄）。"""
+    ) -> tuple[tuple[Any, ...], dict[str, str]]:
+        """模式白名单与 Active Skill allowed-tools 的硬交集（只收窄）。
 
-        filtered = []
+        返回（保留的工具, 被丢弃工具名 → 原因），原因供授予降级记录使用。
+        """
+
+        filtered: list[Any] = []
+        dropped: dict[str, str] = {}
         for tool in tools:
             name = tool.definition.name
             if not self._tool_registry.is_allowed_for_mode(name, mode):
+                dropped[name] = "mode_not_allowed"
                 continue
             if skill_tool_scope is not None and name not in skill_tool_scope:
+                dropped[name] = "skill_scope"
                 continue
             filtered.append(tool)
-        return tuple(filtered)
+        return tuple(filtered), dropped
 
     def _reserve_invocation(self, run_id: str) -> None:
         count = self._invocations.get(run_id, 0)

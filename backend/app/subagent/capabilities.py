@@ -84,7 +84,11 @@ class CapabilityGrant:
 
 @dataclass(frozen=True, slots=True)
 class GrantDowngrade:
-    """一条因模式收窄而丢弃的授予（请求值与原因进轨迹）。"""
+    """一条被收窄丢弃的授予（请求值、原因进轨迹）。
+
+    原因取值：``plan_mode``（PLAN 模式降级）、``skill_scope``（Active Skill
+    allowed-tools 收窄）、``mode_not_allowed``（模式白名单收窄）。
+    """
 
     requested: str
     effective: str | None
@@ -104,9 +108,16 @@ def parse_grants(raw_grants: Sequence[str]) -> tuple[CapabilityGrant, ...]:
                 f"grants[{index}] 必须是非空字符串；{_SUPPORTED_HINT}"
             )
         text = raw.strip()
-        name, _, argument_text = text.partition(":")
+        name, separator, argument_text = text.partition(":")
         name = name.strip().casefold()
-        raw_argument = argument_text.strip() if argument_text else None
+        # 显式写了冒号却没给参数（如 "read_repo:"）按非法声明拒绝：静默放宽成
+        # 不限作用域是 fail-open，宁可让调用方改写声明。
+        if separator and not argument_text.strip():
+            raise CapabilityError(
+                f"能力 {name!r} 的参数为空（不给参数时不要写冒号）；"
+                f"{_SUPPORTED_HINT}"
+            )
+        raw_argument = argument_text.strip() if separator else None
         spec = CAPABILITY_CATALOG.get(name)
         if spec is None:
             raise CapabilityError(f"未知能力 {name!r}；{_SUPPORTED_HINT}")

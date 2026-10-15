@@ -1,8 +1,8 @@
 """通用 HTTP 请求工具（需人工审核）。
 
 网络访问存在 SSRF 风险，权限档位为 HUMAN_APPROVAL。
-默认阻止解析到内网/回环地址的主机；可通过 ``allow_private`` 或
-``allowed_hosts`` 显式放开（仅限本地/测试场景）。
+默认阻止解析到内网/回环地址的主机（包括重定向跳转的每一跳）；
+可通过 ``allow_private`` 或 ``allowed_hosts`` 显式放开（仅限本地/测试场景）。
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
+from collections.abc import Awaitable, Callable
 from time import perf_counter
 from typing import Any
 from urllib.parse import urlsplit
@@ -22,6 +23,33 @@ from ..base import BaseTool
 
 MAX_HTTP_TIMEOUT_SECONDS = 60.0
 _ALLOWED_METHODS = {"GET", "POST", "HEAD"}
+
+
+class _HopGuardedTransport(httpx.AsyncBaseTransport):
+    """每一次实际请求（含重定向跳转）都先过校验再发出。
+
+    httpx 的 ``follow_redirects`` 在每个跳转上用同一 transport 发起新请求，
+    因此在 transport 层校验等价于"逐跳校验"；只在初始 URL 上校验会留下
+    "被授予/获批的公网主机 302 到内网地址"的 SSRF 缺口。
+    """
+
+    def __init__(
+        self,
+        guard: Callable[[str], Awaitable[None]],
+        inner: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._guard = guard
+        self._inner = inner or httpx.AsyncHTTPTransport()
+
+    async def handle_async_request(
+        self,
+        request: httpx.Request,
+    ) -> httpx.Response:
+        await self._guard(request.url.host)
+        return await self._inner.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
 
 
 class HttpRequestTool(BaseTool):
@@ -116,8 +144,13 @@ class HttpRequestTool(BaseTool):
                 self._client, method, url, headers, body, timeout
             )
 
-        await self._assert_safe_url(parsed.hostname)
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+        # 自建 client 时用逐跳校验的 transport：初始 URL 与每一次重定向目标
+        # 都执行 SSRF 防护（私网 / 回环 / 保留地址）。
+        transport = _HopGuardedTransport(self._assert_safe_url)
+        async with httpx.AsyncClient(
+            transport=transport,
+            follow_redirects=True,
+        ) as client:
             return await self._do_request(
                 client, method, url, headers, body, timeout
             )

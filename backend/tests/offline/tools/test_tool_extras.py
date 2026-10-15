@@ -17,6 +17,7 @@ from app.tools import (
     ToolRegistry,
     WebSearchTool,
 )
+from app.tools.builtin.http_request import _HopGuardedTransport
 
 
 def executor_with(*tools: Any, gate: AutoApproveGate | None = None) -> ToolExecutor:
@@ -189,6 +190,40 @@ async def test_http_request_blocks_private_addresses() -> None:
 
     assert result.success is False
     assert "SSRF" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_http_request_redirect_hops_are_ssrf_checked() -> None:
+    """重定向跳转的每一跳都必须过 SSRF 校验（不能只在初始 URL 上校验）。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "public.example":
+            return httpx.Response(
+                302,
+                headers={"location": "http://internal.example/x"},
+            )
+        return httpx.Response(200, text="should not be reached")
+
+    checked: list[str] = []
+
+    async def guard(host: str) -> None:
+        checked.append(host)
+        if host == "internal.example":
+            raise ValueError(
+                f"URL host {host!r} resolves to a private or internal "
+                "address and is blocked (SSRF guard)."
+            )
+
+    transport = _HopGuardedTransport(
+        guard,
+        inner=httpx.MockTransport(handler),
+    )
+    client = httpx.AsyncClient(transport=transport, follow_redirects=True)
+
+    with pytest.raises(ValueError, match="SSRF"):
+        await client.get("http://public.example/")
+
+    assert checked == ["public.example", "internal.example"]
 
 
 @pytest.mark.asyncio

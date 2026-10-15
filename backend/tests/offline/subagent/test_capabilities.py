@@ -44,6 +44,8 @@ def test_read_repo_argument_is_optional_and_normalized() -> None:
         ["run_shell"],
         ["web_fetch"],
         ["web_fetch:"],
+        ["read_repo:"],
+        ["web_search: "],
         ["web_fetch:http://docs.python.org"],
         ["web_fetch:docs.python.org:8080"],
         ["read_repo:../secrets"],

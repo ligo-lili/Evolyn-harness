@@ -796,6 +796,75 @@ async def test_invalid_grant_is_rejected_without_events_or_model_calls(
     assert AgentEventType.SUBAGENT_FAILED not in types
 
 
+async def test_skill_scope_prunes_grants_and_records_reason(
+    build_harness,
+) -> None:
+    """Active Skill 收窄掉的能力不进生效值，并以降级记录如实标注。"""
+
+    harness = build_harness(
+        [
+            model_response(
+                usage=usage(10),
+                tool_calls=(
+                    tool_call(
+                        "submit_result",
+                        {"conclusions": "只用到搜索。"},
+                        call_id="s1",
+                    ),
+                ),
+            )
+        ]
+    )
+
+    outcome = await harness.runner.run(
+        parent_run_id="run-skill",
+        conversation_id="conv-skill",
+        step=1,
+        task="只允许搜索的委派",
+        grants=["read_repo", "web_search"],
+        memory="none",
+        mode=AgentMode.NORMAL,
+        skill_tool_scope=frozenset({"web_search"}),
+    )
+
+    assert outcome.submitted is True
+    assert outcome.grants_requested == ("read_repo", "web_search")
+    assert outcome.grants == ("web_search",)
+    assert [(item.requested, item.reason) for item in outcome.downgrades] == [
+        ("read_repo", "skill_scope")
+    ]
+    request = harness.adapter.requests[0]
+    assert {tool.name for tool in request.tools} == {
+        "web_search",
+        "submit_result",
+    }
+    prompt = request.messages[0].content or ""
+    assert "read_repo" not in prompt
+    assert "web_search" in prompt
+
+
+async def test_grants_fully_filtered_by_skill_scope_are_rejected(
+    build_harness,
+) -> None:
+    harness = build_harness([])
+
+    with pytest.raises(CapabilityError):
+        await harness.runner.run(
+            parent_run_id="run-skill",
+            conversation_id="conv-skill",
+            step=1,
+            task="交集为空的委派",
+            grants=["read_repo"],
+            memory="none",
+            mode=AgentMode.NORMAL,
+            skill_tool_scope=frozenset({"web_search"}),
+        )
+
+    # 拒绝发生在任何子模型调用、SUBAGENT_* 事件与配额消耗之前。
+    assert harness.adapter.requests == []
+    assert harness.runner._invocations == {}
+
+
 async def test_nested_trace_persists_sub_run_events(
     tmp_path,
     build_harness,
