@@ -1,0 +1,35 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+
+# Local runtime data
+workspace/*
+!workspace/.gitkeep
+output/
+.evolyn/
+backend/.evolyn/
+
+# Local evaluation artifacts
+backend/tests/eval_legacy/reports/*.md
+!backend/tests/eval_legacy/reports/README.md
+backend/tests/eval_legacy/reports/historical/runtime/*.md
+backend/tests/eval_legacy/reports/historical/skill_learning/*.md
+
+# Public documentation allowlist
+# 仅公开 Sandbox 边界说明；其余本地文档不进入仓库。
+docs/*
+!docs/sandbox.md
+
+# OS junk
+.DS_Store
