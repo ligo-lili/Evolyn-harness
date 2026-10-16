@@ -153,6 +153,14 @@ class AgentEvent(BaseModel):
     subagent_grants: tuple[str, ...] = ()
     subagent_memory: str | None = None
     subagent_truncated: bool | None = None
+    # 任务单身份（v3 可观测性）：goal / scope / tier / 续跑关系。
+    subagent_goal: str | None = None
+    subagent_scope: tuple[str, ...] = ()
+    subagent_tier: str | None = None
+    subagent_continuation_of: str | None = None
+    # 终态判定：失败原因与越权计数（scope_violation / injection_suspected）。
+    subagent_failed_reason: str | None = None
+    subagent_scope_attempts: int | None = Field(default=None, ge=0)
     # Memory 自动召回观测字段（每 Run 一次检索的候选与实际融合模式）。
     recall_candidate_ids: tuple[str, ...] = ()
     recall_mode: str | None = None

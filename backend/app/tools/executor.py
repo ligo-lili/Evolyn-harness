@@ -96,6 +96,12 @@ class ToolExecutor:
             return self.logger.records
         return ()
 
+    @property
+    def output_recorder(self) -> ToolOutputRecorder | None:
+        """输出证据记录器（子代理账本等需要手动归档证据时使用）。"""
+
+        return self._output_recorder
+
     async def clear_run_rules(self, run_id: str) -> int:
         """清理一次 Agent Run 创建的临时审批规则。"""
 

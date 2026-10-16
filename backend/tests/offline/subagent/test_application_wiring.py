@@ -80,7 +80,12 @@ async def test_application_wires_deferred_subagent_delegation(
                     tool_call(
                         "subagent_run",
                         {
-                            "task": "读取 notes.txt 并给出结论",
+                            "ticket": {
+                                "goal": "读取 notes.txt 并给出结论",
+                                "questions": ["notes.txt 的内容是什么"],
+                                "scope_paths": ["notes.txt"],
+                                "done_when": "给出结论与文件定位",
+                            },
                             "grants": ["read_repo"],
                             "memory": "none",
                         },
@@ -95,18 +100,39 @@ async def test_application_wires_deferred_subagent_delegation(
                     tool_call("read_file", {"path": "notes.txt"}, call_id="s1"),
                 ),
             ),
-            # 4) 子：提交
+            # 4) 子：记录发现
+            model_response(
+                usage=usage(20),
+                tool_calls=(
+                    tool_call(
+                        "record_finding",
+                        {
+                            "type": "exists",
+                            "claim": "notes.txt 存在且内容已核对。",
+                            "locations": [
+                                {
+                                    "path": "notes.txt",
+                                    "lines": "1",
+                                    "symbol": "hello",
+                                }
+                            ],
+                        },
+                        call_id="s2",
+                    ),
+                ),
+            ),
+            # 5) 子：提交
             model_response(
                 usage=usage(20),
                 tool_calls=(
                     tool_call(
                         "submit_result",
-                        {"conclusions": "notes.txt 存在。"},
-                        call_id="s2",
+                        {"summary": "notes.txt 存在。"},
+                        call_id="s3",
                     ),
                 ),
             ),
-            # 5) 父：终结
+            # 6) 父：终结
             model_response(usage=usage(10), content="调查完成。"),
         ],
     )
@@ -140,7 +166,9 @@ async def test_application_wires_deferred_subagent_delegation(
 
         payload = json.loads(result.tool_calls[1].result.output)
         assert payload["submitted"] is True
-        assert payload["status"] == "completed"
+        assert payload["status"] == "complete"
+        assert payload["summary"] == "notes.txt 存在。"
+        assert [item["finding_id"] for item in payload["findings"]] == ["f1"]
         assert payload["grants"] == ["read_repo"]
 
         types = [event.type for event in events.events]

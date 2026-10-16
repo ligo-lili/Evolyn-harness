@@ -1,8 +1,9 @@
 """子代理的结构化结果交付工具（只存在于子循环）。
 
 ``submit_result`` 是子循环的终局工具：成功提交立即结束循环（不再多耗一次
-模型调用），提交内容由 runner 取最后一次成功调用组装为有界 JSON 返回主
-循环。校验失败返回工具错误，模型可修正后重试。
+模型调用），提交内容由 runner 结合发现账本组装为有界 JSON 返回主循环。
+格式无效时最多重试 2 次（重试不扩大权限、不重置预算）；重试耗尽后以“被拒
+收”的终局结果结束循环，由 runner 按已入账的发现返回 partial / failed。
 """
 
 from __future__ import annotations
@@ -14,114 +15,93 @@ from app.tools.base import BaseTool
 
 SUBMIT_RESULT_TOOL_NAME = "submit_result"
 
-_MAX_KEY_FILES = 25
-_MAX_SNIPPETS = 10
-_MAX_SNIPPET_CODE_CHARS = 2_000
-_MAX_LIST_ITEMS = 20
-_MAX_ITEM_CHARS = 500
-_MAX_PATH_CHARS = 300
+MAX_SUMMARY_CHARS = 600
+_MAX_NOT_COVERED_ITEMS = 20
+_MAX_NOT_COVERED_CHARS = 500
+MAX_INVALID_ATTEMPTS = 2
 
 
 class SubmitResultTool(BaseTool):
     """校验并归一化子代理的交付内容；成功提交即终止子循环。"""
 
-    definition = ToolDefinition(
-        name=SUBMIT_RESULT_TOOL_NAME,
-        description=(
-            "提交本次调查的结构化结果并立即结束。字段：conclusions（结论，"
-            "必填）、key_files（关键文件与行号，如 app/agent/loop.py:120）、"
-            "snippets（必要的短代码片段）、uncertainties（不确定点）、"
-            "uncovered（未覆盖范围；预算收口时必须如实填写）。提交成功即结束，"
-            "不要再调用其他工具；没有把握的内容写入 uncertainties/uncovered，"
-            "不得虚构结论。"
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "conclusions": {
-                    "type": "string",
-                    "description": (
-                        "结论：直接回答委派任务的核心发现（必填）。"
-                    ),
-                },
-                "key_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "关键文件与行号（相对路径），如 "
-                        "\"app/agent/loop.py:120\"；最多 25 条。"
-                    ),
-                },
-                "snippets": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "file": {"type": "string"},
-                            "lines": {
-                                "type": "string",
-                                "description": "行号范围，如 \"120-140\"（可选）",
-                            },
-                            "code": {"type": "string"},
-                        },
-                        "required": ["file", "code"],
-                        "additionalProperties": False,
+    def __init__(self) -> None:
+        self._invalid_attempts = 0
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name=SUBMIT_RESULT_TOOL_NAME,
+            description=(
+                "提交本次调查的总结并立即结束。字段：summary（结论性总结，"
+                f"最多 {MAX_SUMMARY_CHARS} 字符，必填）、not_covered（未覆盖"
+                "范围 / 仍未回答的问题；预算收口时必须如实填写）。逐条发现"
+                "已通过 record_finding 入账，这里只写总结，不要重复罗列细节；"
+                "提交成功即结束，不要再调用其他工具；没有把握的内容写入 "
+                "not_covered，不得虚构结论。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": (
+                            "结论性总结：直接回答委派任务的核心发现"
+                            f"（≤{MAX_SUMMARY_CHARS} 字符）。"
+                        ),
                     },
-                    "description": (
-                        "必要的短代码片段；最多 10 条，每条不超过 2000 字符。"
-                    ),
+                    "not_covered": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "未覆盖范围 / 未回答的问题；最多 "
+                            f"{_MAX_NOT_COVERED_ITEMS} 条、每条 ≤"
+                            f"{_MAX_NOT_COVERED_CHARS} 字符。"
+                        ),
+                    },
                 },
-                "uncertainties": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "不确定点 / 未验证的推断；最多 20 条。",
-                },
-                "uncovered": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "未覆盖范围（预算收口时必填）：哪些部分没有查完、"
-                        "哪些问题仍未有答案。"
-                    ),
-                },
+                "required": ["summary"],
+                "additionalProperties": False,
             },
-            "required": ["conclusions"],
-            "additionalProperties": False,
-        },
-        strict=False,
-        permission=ToolPermission.ALLOWED,
-        closing_allowed=True,
-        record_output=False,
-    )
+            strict=False,
+            permission=ToolPermission.ALLOWED,
+            closing_allowed=True,
+            record_output=False,
+        )
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        conclusions = arguments.get("conclusions")
-        if not isinstance(conclusions, str) or not conclusions.strip():
-            raise ValueError(
-                "'conclusions' must be a non-empty string"
-            )
-        return {
-            "conclusions": conclusions.strip(),
-            "key_files": _string_list(
-                arguments.get("key_files", []),
-                field="key_files",
-                item_max_chars=_MAX_PATH_CHARS,
-                max_items=_MAX_KEY_FILES,
-            ),
-            "snippets": _snippets(arguments.get("snippets", [])),
-            "uncertainties": _string_list(
-                arguments.get("uncertainties", []),
-                field="uncertainties",
-                item_max_chars=_MAX_ITEM_CHARS,
-                max_items=_MAX_LIST_ITEMS,
-            ),
-            "uncovered": _string_list(
-                arguments.get("uncovered", []),
-                field="uncovered",
-                item_max_chars=_MAX_ITEM_CHARS,
-                max_items=_MAX_LIST_ITEMS,
-            ),
-        }
+        try:
+            return _validate(arguments)
+        except ValueError as exc:
+            self._invalid_attempts += 1
+            if self._invalid_attempts <= MAX_INVALID_ATTEMPTS:
+                raise
+            # 格式重试耗尽：收敛为“被拒收”的终局结果（缺少 summary 字段，
+            # runner 会按已入账发现返回 partial / failed，不再消耗预算）。
+            return {
+                "accepted": False,
+                "error": str(exc),
+                "attempts": self._invalid_attempts,
+            }
+
+
+def _validate(arguments: Any) -> dict[str, Any]:
+    if not isinstance(arguments, dict):
+        raise ValueError("submit_result 参数必须是对象")
+    summary = arguments.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError("'summary' 必须是非空字符串（必填）")
+    summary = summary.strip()
+    if len(summary) > MAX_SUMMARY_CHARS:
+        raise ValueError(f"'summary' 最多 {MAX_SUMMARY_CHARS} 字符")
+    return {
+        "summary": summary,
+        "not_covered": _string_list(
+            arguments.get("not_covered", []),
+            field="not_covered",
+            item_max_chars=_MAX_NOT_COVERED_CHARS,
+            max_items=_MAX_NOT_COVERED_ITEMS,
+        ),
+    }
 
 
 def _string_list(
@@ -150,39 +130,9 @@ def _string_list(
     return normalized
 
 
-def _snippets(value: Any) -> list[dict[str, str]]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError("'snippets' must be a list of objects")
-    if len(value) > _MAX_SNIPPETS:
-        raise ValueError(f"'snippets' accepts at most {_MAX_SNIPPETS} items")
-    normalized: list[dict[str, str]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            raise ValueError("'snippets' items must be objects")
-        file_name = item.get("file")
-        code = item.get("code")
-        if not isinstance(file_name, str) or not file_name.strip():
-            raise ValueError("'snippets[].file' must be a non-empty string")
-        if not isinstance(code, str) or not code.strip():
-            raise ValueError("'snippets[].code' must be a non-empty string")
-        if len(code) > _MAX_SNIPPET_CODE_CHARS:
-            raise ValueError(
-                f"'snippets[].code' must be at most "
-                f"{_MAX_SNIPPET_CODE_CHARS} characters"
-            )
-        lines = item.get("lines")
-        if lines is not None and not isinstance(lines, str):
-            raise ValueError("'snippets[].lines' must be a string when present")
-        normalized.append(
-            {
-                "file": file_name.strip(),
-                "lines": (lines or "").strip(),
-                "code": code,
-            }
-        )
-    return normalized
-
-
-__all__ = ["SUBMIT_RESULT_TOOL_NAME", "SubmitResultTool"]
+__all__ = [
+    "MAX_INVALID_ATTEMPTS",
+    "MAX_SUMMARY_CHARS",
+    "SUBMIT_RESULT_TOOL_NAME",
+    "SubmitResultTool",
+]

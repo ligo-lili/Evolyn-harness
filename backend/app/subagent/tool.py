@@ -10,9 +10,73 @@ from app.tools.base import BaseTool
 from app.tools.hooks import ToolExecutionContext
 
 from .runner import SubAgentRunner
+from .ticket import DEFAULT_TIER, EVIDENCE_TYPES, TIERS, parse_ticket
 
 SUBAGENT_TOOL_NAME = "subagent_run"
 _MEMORY_LEVELS = ("none", "core", "full")
+
+_TICKET_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "goal": {
+            "type": "string",
+            "description": "一句话目标（≤300 字符）。",
+        },
+        "questions": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "需要回答的具体问题（1-12 条，每条 ≤500 字符）。",
+        },
+        "scope_paths": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "允许访问的工作区相对路径（1-16 条），执行层白名单：越界"
+                "调用会被拒绝。不能是整个仓库根（需要整体扫描时列出具体"
+                "目录）。"
+            ),
+        },
+        "known_facts": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "主代理已知的事实（可选，≤20 条）：子代理据此避免重复调查，"
+                "但仍需自行核实。"
+            ),
+        },
+        "done_when": {
+            "type": "string",
+            "description": (
+                "可判定的完成条件（≤300 字符），例如：每个问题都有结论与"
+                "文件定位。"
+            ),
+        },
+        "evidence_types": {
+            "type": "array",
+            "items": {"type": "string", "enum": list(EVIDENCE_TYPES)},
+            "description": (
+                "期望的证据类型（可选，缺省不限）：exists（存在/定义）、"
+                "calls（调用关系）、reads_config（配置读取）、absent"
+                "（不存在/未使用）、behavior（行为）。"
+            ),
+        },
+        "tier": {
+            "type": "string",
+            "enum": list(TIERS),
+            "default": DEFAULT_TIER,
+            "description": "预算档位：quick / medium（默认）/ thorough。",
+        },
+        "continuation_of": {
+            "type": "string",
+            "description": (
+                "可选：上一次 partial 委派的 subagent_id（续跑时填写），"
+                "只补充探索未覆盖范围。"
+            ),
+        },
+    },
+    "required": ["goal", "questions", "scope_paths", "done_when"],
+    "additionalProperties": False,
+}
 
 
 class SubAgentTool(BaseTool):
@@ -27,25 +91,29 @@ class SubAgentTool(BaseTool):
         return ToolDefinition(
             name=SUBAGENT_TOOL_NAME,
             description=(
-                "把一次独立的调查任务委派给子代理：子代理在隔离上下文中运行"
-                "（看不到本对话），只持有 grants 显式授予的只读能力，完成后"
-                "返回结构化结果（结论、关键文件与行号、短代码片段、不确定点、"
-                "未覆盖范围）。task 必须自包含：背景、要回答的问题、期望的"
-                "证据形态。结果 truncated=true 时，依据 uncovered_scope 决定"
-                "是重新委派（缩小范围）还是自行接手。适合：多文件 / 多来源的"
-                "资料调查、批量阅读与核实；不适合：写入、执行命令或任何有"
-                "副作用的工作（V1 能力目录只有只读能力）。"
+                "把一次独立的只读调查委派给子代理：子代理在隔离上下文中运行"
+                "（看不到本对话），只持有 grants 显式授予的只读能力；调查中"
+                "逐条记录可验证发现，最后返回有界结果：已验证的发现清单"
+                "（含 evidence_id，可用 evidence_read 展开原文）、summary、"
+                "not_covered、status（complete/partial/failed）与失败原因。"
+                "ticket 必须自包含：goal（一句话目标）、questions（要回答的"
+                "问题）、scope_paths（允许访问的路径范围，同时是执行层白名单"
+                "——与 read_repo 前缀取交，越界调用会被拒绝）、done_when"
+                "（可判定的完成条件）；建议同时给出 known_facts（已知事实）与"
+                "evidence_types（期望的证据类型）。适合：预计读取超过约 8 个"
+                "文件、跨模块调用链、可并行检索的资料调查；不适合：少量文件的"
+                "直接查看、写入、执行命令或任何有副作用的工作（能力目录只有"
+                "只读能力）。status 不是 complete、或 not_covered 非空时，"
+                "据其决定是否继续委派（缩小范围）或自行接手；续跑时把"
+                "continuation 里的 not_covered 与已验证发现填进新 ticket 的"
+                "known_facts、把 subagent_id 填进 continuation_of，只补查"
+                "未覆盖范围；关键结论应基于证据核实原文，不要直接采信结论"
+                "文字。"
             ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "task": {
-                        "type": "string",
-                        "description": (
-                            "自包含的任务说明：背景、要回答的具体问题、期望"
-                            "的证据形态（子代理看不到本对话）。"
-                        ),
-                    },
+                    "ticket": _TICKET_SCHEMA,
                     "grants": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -66,7 +134,7 @@ class SubAgentTool(BaseTool):
                         ),
                     },
                 },
-                "required": ["task", "grants"],
+                "required": ["ticket", "grants"],
                 "additionalProperties": False,
             },
             strict=False,
@@ -88,9 +156,10 @@ class SubAgentTool(BaseTool):
         if not run_id:
             raise ValueError("subagent_run 必须在 Agent Run 上下文中执行")
 
-        task = arguments.get("task")
-        if not isinstance(task, str) or not task.strip():
-            raise ValueError("'task' 必须是非空字符串（自包含的任务说明）")
+        ticket = parse_ticket(
+            arguments.get("ticket"),
+            allow_repo_root=self._runner.settings.allow_repo_root,
+        )
 
         grants = arguments.get("grants")
         if not isinstance(grants, list) or not grants:
@@ -111,7 +180,7 @@ class SubAgentTool(BaseTool):
             parent_run_id=run_id,
             conversation_id=context.conversation_id,
             step=context.step,
-            task=task.strip(),
+            ticket=ticket,
             grants=list(grants),
             memory=memory,
             mode=context.mode or AgentMode.NORMAL,

@@ -1,7 +1,9 @@
 """子代理能力对应的受限工具包装与装配。
 
-包装只收紧不放开：作用域校验（路径前缀 / 主机白名单 / 方法白名单）全部在
-本地确定性完成，真正的执行仍委托给主注册表里的原工具实例。
+包装只收紧不放开：作用域校验（路径前缀 / 主机白名单 / 方法白名单 / 任务单
+scope_paths）全部在本地确定性完成，真正的执行仍委托给主注册表里的原工具
+实例；grep / glob / git 系列是子代理专用工具（见 ``explore_tools.py``），
+不进入主 Agent 的工具面。
 """
 
 from __future__ import annotations
@@ -14,49 +16,78 @@ from urllib.parse import urlsplit
 
 from app.models.types import ToolDefinition, ToolPermission
 from app.tools.base import BaseTool
-from app.tools.builtin._workspace import resolve_workspace_path, workspace_root_path
+from app.tools.builtin._workspace import workspace_root_path
 from app.tools.builtin.list_files import MAX_LISTED_FILES
 from app.tools.registry import ToolRegistry
 
 from .capabilities import CapabilityError, CapabilityGrant
+from .explore_tools import (
+    GitDiffTool,
+    GitLogTool,
+    GitShowTool,
+    GitStatusTool,
+    GlobTool,
+    GrepTool,
+)
+from .path_scope import (
+    SCOPE_VIOLATION_MARKER,
+    assert_relative_within_scope,
+    prefix_scope_text,
+)
+from .ticket import intersect_prefixes
 
 _ALLOWED_FETCH_METHODS = ("GET", "HEAD")
+# 单次读取上限：超出部分截断并显式标注（任务级累计输出上限见预算收口）。
+MAX_SCOPED_READ_CHARS = 120_000
+
+
+def read_grant_prefixes(
+    grants: Sequence[CapabilityGrant],
+) -> tuple[str, ...] | None:
+    """read_repo 授予的前缀并集；任一授予不限前缀（或没有该授予）即为 None。"""
+
+    values = [grant.argument for grant in grants if grant.name == "read_repo"]
+    if not values or any(value is None for value in values):
+        return None
+    return tuple(dict.fromkeys(values))
 
 
 def build_scoped_tools(
     grants: Sequence[CapabilityGrant],
     main_registry: ToolRegistry,
     workspace_root: str | Path | None,
+    *,
+    scope_paths: tuple[str, ...] | None = None,
 ) -> tuple[BaseTool, ...]:
     """按生效授予装配子代理工具。
 
     同一能力多次授予时作用域合并（read_repo 前缀取并集；任一授予不给前缀
     即为不限制；web_fetch 域名取并集），避免同一工具名在 scoped registry
-    中重复注册。
+    中重复注册。``scope_paths``（任务单）对 read_repo 前缀做二次收窄：
+    交集为空时拒绝启动（``CapabilityError``）。
     """
 
-    read_prefixes: list[str | None] = []
+    has_read = any(grant.name == "read_repo" for grant in grants)
     fetch_hosts: list[str] = []
     wants_search = False
     for grant in grants:
-        if grant.name == "read_repo":
-            read_prefixes.append(grant.argument)
-        elif grant.name == "web_search":
+        if grant.name == "web_search":
             wants_search = True
         elif grant.name == "web_fetch":
             fetch_hosts.extend(
                 grant.argument.split(",") if grant.argument else ()
             )
-        else:  # pragma: no cover - 目录与解析器同步演进
+        elif grant.name != "read_repo":  # pragma: no cover - 目录与解析器同步演进
             raise CapabilityError(f"能力 {grant.name!r} 没有装配实现")
 
     tools: list[BaseTool] = []
-    if read_prefixes:
-        prefixes = (
-            None
-            if any(item is None for item in read_prefixes)
-            else tuple(dict.fromkeys(read_prefixes))
-        )
+    if has_read:
+        prefixes = intersect_prefixes(read_grant_prefixes(grants), scope_paths)
+        if prefixes == ():
+            raise CapabilityError(
+                "任务单 scope_paths 与 grants 的 read_repo 前缀没有交集，"
+                "无法启动子代理（请收窄 scope_paths 或放宽 read_repo 前缀）"
+            )
         tools.append(
             ScopedReadFileTool(
                 _require_tool(main_registry, "read_repo", "read_file"),
@@ -71,6 +102,16 @@ def build_scoped_tools(
                 prefixes=prefixes,
             )
         )
+        # 子代理专用只读探索工具（不进主 Agent 工具面）。
+        for explore_tool in (
+            GrepTool(workspace_root=workspace_root, prefixes=prefixes),
+            GlobTool(workspace_root=workspace_root, prefixes=prefixes),
+            GitStatusTool(workspace_root=workspace_root, prefixes=prefixes),
+            GitDiffTool(workspace_root=workspace_root, prefixes=prefixes),
+            GitLogTool(workspace_root=workspace_root, prefixes=prefixes),
+            GitShowTool(workspace_root=workspace_root, prefixes=prefixes),
+        ):
+            tools.append(explore_tool)
     if wants_search:
         tools.append(_require_tool(main_registry, "web_search", "web_search"))
     if fetch_hosts:
@@ -92,47 +133,8 @@ def _require_tool(registry: ToolRegistry, capability: str, name: str) -> BaseToo
         ) from None
 
 
-def _prefix_scope_text(prefixes: tuple[str, ...] | None) -> str:
-    if prefixes is None:
-        return "the whole workspace"
-    return ", ".join(f"{prefix}/" for prefix in prefixes)
-
-
-def _rel_within_prefixes(relative: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        relative == prefix or relative.startswith(f"{prefix}/")
-        for prefix in prefixes
-    )
-
-
-def _assert_relative_within_scope(
-    workspace_root: Path,
-    relative_path: str,
-    prefixes: tuple[str, ...] | None,
-    *,
-    allow_root: bool = False,
-) -> None:
-    if prefixes is None:
-        return
-    target = resolve_workspace_path(
-        workspace_root,
-        relative_path,
-        allow_root=allow_root,
-    )
-    relative = (
-        "."
-        if target == workspace_root
-        else target.relative_to(workspace_root).as_posix()
-    )
-    if not _rel_within_prefixes(relative, prefixes):
-        raise ValueError(
-            f"path {relative_path!r} is outside the granted read_repo scope: "
-            f"{_prefix_scope_text(prefixes)}"
-        )
-
-
 class ScopedReadFileTool(BaseTool):
-    """把 read_file 收窄到授予的路径前缀。"""
+    """把 read_file 收窄到授予的路径前缀，并限制单次读取大小。"""
 
     def __init__(
         self,
@@ -152,7 +154,8 @@ class ScopedReadFileTool(BaseTool):
             update={
                 "description": (
                     f"{base.description} Scoped by the sub-agent grant: "
-                    f"access is limited to {_prefix_scope_text(self._prefixes)}."
+                    f"access is limited to {prefix_scope_text(self._prefixes)}; "
+                    f"single reads are capped at {MAX_SCOPED_READ_CHARS} chars."
                 ),
             }
         )
@@ -161,12 +164,18 @@ class ScopedReadFileTool(BaseTool):
         relative_path = arguments.get("path")
         if not isinstance(relative_path, str) or not relative_path:
             raise ValueError("'path' must be a non-empty string")
-        _assert_relative_within_scope(
+        assert_relative_within_scope(
             self._workspace_root,
             relative_path,
             self._prefixes,
         )
-        return await self._delegate.execute(arguments)
+        result = await self._delegate.execute(arguments)
+        if isinstance(result, str) and len(result) > MAX_SCOPED_READ_CHARS:
+            return (
+                f"{result[:MAX_SCOPED_READ_CHARS]}\n…[truncated: "
+                f"single read limit {MAX_SCOPED_READ_CHARS} chars reached]"
+            )
+        return result
 
 
 class ScopedListFilesTool(BaseTool):
@@ -190,7 +199,7 @@ class ScopedListFilesTool(BaseTool):
             update={
                 "description": (
                     f"{base.description} Scoped by the sub-agent grant: only "
-                    f"{_prefix_scope_text(self._prefixes)} can be listed."
+                    f"{prefix_scope_text(self._prefixes)} can be listed."
                 ),
             }
         )
@@ -203,7 +212,7 @@ class ScopedListFilesTool(BaseTool):
             return await self._delegate.execute(arguments)
         if directory.strip() in ("", "."):
             return await self._list_prefix_roots()
-        _assert_relative_within_scope(
+        assert_relative_within_scope(
             self._workspace_root,
             directory,
             self._prefixes,
@@ -287,8 +296,8 @@ class ScopedWebFetchTool(BaseTool):
         host = parsed.hostname.casefold()
         if not _host_within_scope(host, self._hosts):
             raise ValueError(
-                f"host {host!r} is outside the granted web_fetch scope: "
-                f"{', '.join(self._hosts)}"
+                f"{SCOPE_VIOLATION_MARKER}: host {host!r} is outside the "
+                f"granted web_fetch scope: {', '.join(self._hosts)}"
             )
         method = str(arguments.get("method", "GET")).upper()
         if method not in _ALLOWED_FETCH_METHODS:
@@ -307,8 +316,10 @@ def _host_within_scope(host: str, hosts: tuple[str, ...]) -> bool:
 
 
 __all__ = [
+    "MAX_SCOPED_READ_CHARS",
     "ScopedListFilesTool",
     "ScopedReadFileTool",
     "ScopedWebFetchTool",
     "build_scoped_tools",
+    "read_grant_prefixes",
 ]

@@ -135,6 +135,22 @@ class ToolRegistry:
 
         return name in self.allowed_names_for_mode(mode, allowed_tools=allowed_tools)
 
+    def filter_names_for_mode(
+        self,
+        names: Collection[str],
+        mode: AgentMode,
+    ) -> frozenset[str]:
+        """按同一可用性策略过滤候选工具名。
+
+        子代理装配使用：候选集是 scoped 工具（可能不在主注册表中），
+        NORMAL 下全部放行，PLAN 下按只读白名单收窄。
+        """
+
+        return self._availability_policy.allowed_names(
+            mode,
+            registered_names=names,
+        )
+
     def is_allowed_during_closing(
         self,
         name: str,

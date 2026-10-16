@@ -10,6 +10,14 @@ PLAN_MODE_ALLOWED_TOOLS = frozenset(
     {
         "read_file",
         "list_files",
+        # 子代理专用的只读探索工具：不会注册进主 Agent 的工具面；PLAN 下
+        # 子代理保持同一只读能力（Plan 白名单对未注册的工具名无副作用）。
+        "grep",
+        "glob",
+        "git_status",
+        "git_diff",
+        "git_log",
+        "git_show",
         "web_search",
         "get_current_time",
         # 兼容离线测试或第三方注册的旧工具名。

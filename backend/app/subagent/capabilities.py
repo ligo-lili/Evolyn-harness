@@ -42,8 +42,20 @@ class CapabilitySpec:
 CAPABILITY_CATALOG: dict[str, CapabilitySpec] = {
     "read_repo": CapabilitySpec(
         name="read_repo",
-        summary="只读工作区文件（可限定路径前缀）",
-        tools=("read_file", "list_files"),
+        summary=(
+            "只读工作区文件与仓库历史（可限定路径前缀；含内容搜索、"
+            "路径匹配与只读 git）"
+        ),
+        tools=(
+            "read_file",
+            "list_files",
+            "grep",
+            "glob",
+            "git_status",
+            "git_diff",
+            "git_log",
+            "git_show",
+        ),
         requires_argument=False,
         argument_kind="path_prefix",
         plan_allowed=True,

@@ -181,7 +181,17 @@ async def test_build_scoped_tools_merges_prefixes_and_hosts(tmp_path: Path) -> N
     )
 
     by_name = {tool.definition.name: tool for tool in tools}
-    assert set(by_name) == {"read_file", "list_files", "http_request"}
+    assert set(by_name) == {
+        "read_file",
+        "list_files",
+        "grep",
+        "glob",
+        "git_status",
+        "git_diff",
+        "git_log",
+        "git_show",
+        "http_request",
+    }
     # read_repo 未授予 web_search → 不装配搜索工具。
     assert "web_search" not in by_name
 

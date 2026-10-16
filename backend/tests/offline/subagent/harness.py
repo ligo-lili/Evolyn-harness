@@ -31,6 +31,8 @@ from app.subagent import (
     SubAgentRunner,
     SubagentSettings,
     SubAgentTool,
+    Ticket,
+    parse_ticket,
 )
 from app.tools.base import BaseTool
 from app.tools.builtin.list_files import ListFilesTool
@@ -189,6 +191,25 @@ def usage(tokens: int, *, model_calls: int = 1) -> ModelUsage:
     )
 
 
+def ticket_args(**overrides: object) -> dict[str, Any]:
+    """默认任务单参数：scope 为仓库根（与夹具的 allow_repo_root=True 配套）。"""
+
+    payload: dict[str, Any] = {
+        "goal": "调查 notes.txt 并给出结论",
+        "questions": ["notes.txt 的内容是什么"],
+        "scope_paths": ["."],
+        "done_when": "给出结论与文件定位",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def make_ticket(**overrides: object) -> Ticket:
+    """构造已解析的任务单（允许仓库根，便于夹具）。"""
+
+    return parse_ticket(ticket_args(**overrides), allow_repo_root=True)
+
+
 @dataclass(slots=True)
 class Harness:
     workspace: Path
@@ -277,6 +298,10 @@ def build_harness(
         tool_registry,
         output_recorder=output_recorder,
     )
+    # 离线夹具大多直接在仓库根放文件：夹具默认允许 scope_paths=["."]。
+    # 产品默认（拒绝仓库根）由 test_ticket.py 单独覆盖。
+    if settings is None:
+        settings = SubagentSettings(_env_file=None, allow_repo_root=True)
     runner = SubAgentRunner(
         registry,
         tool_registry,
