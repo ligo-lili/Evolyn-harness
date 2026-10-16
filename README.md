@@ -6,10 +6,6 @@
 
 一个面向长期工作、在本地持续运行的 AI Agent Harness（Windows）。
 
-[![CI](https://github.com/Kong-lh-rgb/evolyn/actions/workflows/ci.yml/badge.svg)](https://github.com/Kong-lh-rgb/evolyn/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
-![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
-
 [核心能力](#what-evolyn-can-do) · [架构](#how-it-fits-together) · [快速开始](#quick-start) · [开发检查](#development-checks)
 
 </div>
@@ -108,10 +104,6 @@ Evolyn Host (python -m app.server)
 - Python 3.12+
 
 ### 1. Clone and install
-
-```powershell
-git clone https://github.com/Kong-lh-rgb/evolyn.git
-cd evolyn
 
 python -m venv backend\.venv
 backend\.venv\Scripts\python -m pip install -r backend\requirements.txt
@@ -215,4 +207,3 @@ evolyn/
 - MCP 当前主要接入 stdio Server；
 - Skill Learning 生成 Candidate，不自动绕过人工确认；
 - CLI 下 Automation 触发人工审批时会在终端等待应答，非交互场景需要预置权限规则；
-- 完整 Live Eval 成本较高，日常开发默认运行离线测试，发布前才运行完整 Regression。
