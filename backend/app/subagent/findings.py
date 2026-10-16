@@ -25,6 +25,7 @@ from app.tools.hooks import ToolExecutionContext
 
 from .explore_tools import GrepTool
 from .path_scope import SCOPE_VIOLATION_MARKER, assert_relative_within_scope
+from .redaction import is_sensitive_path, redact_secrets
 from .ticket import EVIDENCE_TYPES, TicketError, normalize_scope_path
 
 RECORD_FINDING_TOOL_NAME = "record_finding"
@@ -137,7 +138,7 @@ class FindingLedger:
         if verified and excerpt and self._record_evidence is not None:
             content = (
                 f"[finding {finding_id} · {payload['type']}] "
-                f"{payload['claim']}\n\n{excerpt}"
+                f"{payload['claim']}\n\n{redact_secrets(excerpt)}"
             )
             try:
                 evidence_id = await self._record_evidence(content, context)
@@ -210,6 +211,13 @@ class FindingLedger:
                 )
             except ValueError:
                 return False, "path_outside_scope", "", path
+            relative = (
+                "."
+                if target == self._workspace_root
+                else target.relative_to(self._workspace_root).as_posix()
+            )
+            if is_sensitive_path(relative):
+                return False, "sensitive_path", "", path
             if not target.is_file():
                 return False, "path_not_found", "", None
             try:
@@ -269,6 +277,8 @@ class FindingLedger:
                     )
                 except ValueError:
                     return False, "scope_outside_access", "", raw
+                if is_sensitive_path(item):
+                    return False, "sensitive_path", "", raw
                 if not target.is_dir():
                     return False, "scope_not_directory", "", raw
                 if item not in checked:
@@ -407,6 +417,8 @@ def _normalize_arguments(arguments: Any) -> dict[str, Any]:
     if not isinstance(claim, str) or not claim.strip():
         raise ValueError("'claim' 必须是非空字符串")
     claim = " ".join(claim.split())
+    # 防御性脱敏：模型不应把工具输出里的密钥样例粘进结论。
+    claim = redact_secrets(claim)
     if len(claim) > _MAX_CLAIM_CHARS:
         raise ValueError(f"'claim' 最多 {_MAX_CLAIM_CHARS} 字符")
 

@@ -24,6 +24,11 @@ from .findings import (
     FindingLedger,
     RecordFindingTool,
 )
+from .redaction import (
+    is_sensitive_path,
+    redact_secrets,
+    sensitive_rejection_text,
+)
 from .runner import SUBAGENT_BUDGET_MESSAGES, SubAgentOutcome, SubAgentRunner
 from .scoped_tools import (
     ScopedListFilesTool,
@@ -95,11 +100,14 @@ __all__ = [
     "apply_plan_downgrade",
     "build_scoped_tools",
     "intersect_prefixes",
+    "is_sensitive_path",
     "minimize_paths",
     "normalize_scope_path",
     "parse_grants",
     "parse_ticket",
     "read_grant_prefixes",
+    "redact_secrets",
     "render_task_brief",
+    "sensitive_rejection_text",
     "wrap_untrusted",
 ]

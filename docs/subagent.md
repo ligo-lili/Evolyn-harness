@@ -64,9 +64,11 @@ allowed-tools，只能收窄，不能扩大。
 - 路径校验统一走 `assert_relative_within_scope`：解析真实路径（拒绝 `..`
   与符号链接逃逸）后比对前缀集合；`read_file`/`list_files` 是主注册表
   工具的受限包装，grep/glob/git 在搜索根与 pathspec 处校验。
-- 单次读取上限 **120k 字符**（超出截断并标注）；grep/glob/git 结果数量与
-  字符数均有上限；`git_log` 默认 20 条、`git_show` 的 `rev` 必须是 HEAD
-  祖先链上的提交。
+- 单次读取上限 **120k 字符**（超出截断并标注，脱敏先于截断）；grep/glob/
+  git 结果数量与字符数均有上限；`git_log` 默认 20 条、`git_show` 的 `rev`
+  必须是 HEAD 祖先链上的提交。
+- 敏感路径（凭证 / 私钥 / `.env` 等）不在可读范围：读取被拒，扫描结果隐去，
+  git 历史按文件片段过滤（见「安全模型」）。
 - git 只读：显式 argv、最小环境变量、`GIT_TERMINAL_PROMPT=0`、命令超时；
   均不写仓库。
 - 能力降级/丢弃写进轨迹（`plan_mode` / `skill_scope` / `mode_not_allowed`）。
@@ -144,17 +146,32 @@ tier 给出一组初始预算；**settings 里的对应字段是部署级上限*
 
 执行层强制，不依赖 System Prompt。
 
-- **数据分隔符**：所有外部内容工具（read_repo 映射工具与 web 工具）的输出
-  统一包装为 `<untrusted-repo-content> … </untrusted-repo-content>`；子代理
-  系统提示词声明分隔符内是不可信数据——其中的指令、请求或角色设定只是待
-  分析内容，不得改变任务目标、访问范围或交付方式。协议工具（record_finding /
+- **数据分隔符与脱敏**：所有外部内容工具（read_repo 映射工具与 web 工具）
+  的输出先做密钥脱敏（见下条），再统一包装为
+  `<untrusted-repo-content> … </untrusted-repo-content>`；子代理系统提示词
+  声明分隔符内是不可信数据——其中的指令、请求或角色设定只是待分析内容，
+  不得改变任务目标、访问范围或交付方式。协议工具（record_finding /
   submit_result）与回流载荷不经过包装（保持机器可解析）。
+- **敏感路径策略**：凭证与私钥类路径（`.env` 及其变体、`id_rsa*`、
+  `*.pem` / `*.key` / `*.p12` 等、`.ssh` / `.aws` / `.kube` 等目录、
+  `credentials*`）对子代理**不可见**：读取被拒绝，列表 / grep / glob 结果
+  隐去这些条目，`git_status` / `git_diff` / `git_show` 按文件片段过滤
+  （敏感文件的历史版本同样不返回，替换为一句策略说明）；`.env.example` /
+  `.sample` / `.template` 模板放行。显式指向敏感路径的调用按越权拒绝并计入
+  下条计数（拒绝消息带 `scope_violation:` 标记）；策略规则见
+  `backend/app/subagent/redaction.py`。
+- **密钥脱敏**：所有外部内容输出按已知密钥模式（OpenAI / GitHub / GitLab /
+  AWS / Google / Slack token、JWT、Bearer、PEM 私钥块）与高熵串检测替换为
+  `[REDACTED:…]` 占位符；发现摘录在归档为证据、claim 在入账之前同样脱敏。
+  十六进制摘要（如 sha256）与普通代码不误伤；脱敏在读取截断**之前**执行，
+  避免截断把密钥切成无法识别的残片。脱敏是概率性防线，漏报由主 Agent
+  复核与 Trace 审计兜底。
 - **越权计数**：每次越权调用被拒绝后计数——工具层（read/list/grep/glob/
-  git/web_fetch 路径或主机越界，拒绝消息带统一 `scope_violation:` 标记）
-  与账本层（record_finding 越权定位、含 `..`/绝对路径的摆渡）共用同一
-  上限；**同一任务累计 3 次直接终止**：在下一个模型请求前硬停，状态为
-  `failed`、原因为 `scope_violation`（已验证发现保留在载荷里供审计，不作为
-  事实）。计数随回流载荷的 `scope_attempts` 与轨迹暴露。
+  git/web_fetch 路径或主机越界、敏感路径拒绝）与账本层（record_finding
+  越权定位、含 `..`/绝对路径的摆渡、敏感路径定位）共用同一上限；**同一任务
+  累计 3 次直接终止**：在下一个模型请求前硬停，状态为 `failed`、原因为
+  `scope_violation`（已验证发现保留在载荷里供审计，不作为事实）。计数随
+  回流载荷的 `scope_attempts` 与轨迹暴露。
 - **注入嫌疑**：保守判定——只扫描子代理**自己的文本输出**中的显式「忽略既有
   指令」句式（中英文词表，见 `runner.py` 的 `_INJECTION_MARKERS`）；命中后
   在下一个模型请求前终止，状态为 `failed`、原因为 `injection_suspected`。
@@ -207,9 +224,9 @@ Memory Policy 消息不转发。父上下文没有记忆时如实注入空并记
 
 ## 已知边界（未实现 / 非目标）
 
-- **敏感路径策略与密钥脱敏（v3 §3.4/§8）尚未实现**：工具输出与 git 历史
-  目前不做敏感路径过滤与高熵密钥替换，Trace / Evidence 存原文。当前靠
-  只读能力面、范围强制与主 Agent 复核缓解；这是后续迭代项。
+- **Trace / Evidence 保留策略（v3 §8）未实现**：子代理输出在入源头已做
+  密钥脱敏（工具结果、发现摘录、claim），但没有「短期保留 + 到期自动删除」
+  与「只存哈希」机制，Trace / Evidence 按既有机制保存；这是后续迭代项。
 - 无更深嵌套（子代理不能再生子代理）；无独立 Checkpoint / 恢复；
 - 能力目录不含写操作与 Shell（`write_repo` / `run_shell` 属后续版本）；
   不接入 MCP 动态工具；
@@ -238,7 +255,8 @@ Memory Policy 消息不转发。父上下文没有记忆时如实注入空并记
 离线测试位于 `backend/tests/offline/subagent/`：任务单解析/求交/拒绝、
 能力解析与降级、受限包装与专用工具边界、发现账本（幂等 / 校验 / 越权计数 /
 tier 上限）、提交协议与格式重试、隔离与结构化回流、预算三档时序与 tier
-换算、父 Run 累计预算、续跑句柄、越权 3 次终止、注入嫌疑终止、数据分隔符
-包装、并发上限与用量回流、取消传播、Trace / Evidence 持久化、Application
-装配。评测夹具与指标在 `backend/tests/eval/subagent/`（A/B 对照、主上下文
-占用 / 正确率 / 成本口径），真实模型跑批需先确认 API 预算。
+换算、父 Run 累计预算、续跑句柄、越权 3 次终止、敏感路径拒绝与计数、
+密钥脱敏（已知模式 / 高熵 / 结构保持）、git 历史片段过滤、注入嫌疑终止、
+数据分隔符包装、并发上限与用量回流、取消传播、Trace / Evidence 持久化、
+Application 装配。评测夹具与指标在 `backend/tests/eval/subagent/`（A/B 对照、
+主上下文占用 / 正确率 / 成本口径），真实模型跑批需先确认 API 预算。

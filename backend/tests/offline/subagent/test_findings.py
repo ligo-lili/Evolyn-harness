@@ -336,3 +336,78 @@ async def test_record_finding_tool_definition_and_context_requirement(
     )
     assert receipt["status"] == "accepted"
     assert receipt["finding_id"] == "f1"
+
+
+async def test_sensitive_path_finding_is_rejected_and_counted(
+    tmp_path: Path,
+) -> None:
+    ledger = _make_ledger(
+        tmp_path,
+        prefixes=None,
+        files={
+            "src/app.py": "def login():\n    pass\n",
+            ".env": "SECRET=1\n",
+            ".ssh/config": "Host *\n",
+        },
+    )
+    ctx = _context()
+
+    env = await ledger.record(_exists_args(path=".env", lines="1"), ctx)
+    assert env["status"] == "invalid"
+    assert env["reason"] == "sensitive_path"
+    assert ledger.scope_attempts == 1
+
+    # absent 的 search.scope 指向敏感目录同样被拒并计数。
+    absent = await ledger.record(
+        {
+            "type": "absent",
+            "claim": "配置目录没有 TODO。",
+            "search": {"pattern": "TODO", "scope": [".ssh"]},
+        },
+        ctx,
+    )
+    assert absent["status"] == "invalid"
+    assert absent["reason"] == "sensitive_path"
+    assert ledger.scope_attempts == 2
+    assert ledger.listed() == ()
+
+
+async def test_excerpt_is_redacted_before_evidence_archive(
+    tmp_path: Path,
+) -> None:
+    token = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "config.py").write_text(
+        f"API_KEY = '{token}'\n", encoding="utf-8"
+    )
+    archived: list[str] = []
+
+    async def record_evidence(
+        content: str, context: ToolExecutionContext
+    ) -> str | None:
+        archived.append(content)
+        return "ev-1"
+
+    ledger = FindingLedger(
+        workspace_root=workspace,
+        access_prefixes=None,
+        tier="medium",
+        record_evidence=record_evidence,
+    )
+
+    receipt = await ledger.record(
+        {
+            "type": "exists",
+            "claim": "API_KEY 常量存在。",
+            "locations": [
+                {"path": "config.py", "lines": "1", "symbol": "API_KEY"}
+            ],
+        },
+        _context(),
+    )
+
+    assert receipt["status"] == "accepted"
+    assert ledger.entries[0].evidence_id == "ev-1"
+    assert archived and token not in archived[0]
+    assert "[REDACTED:openai-key]" in archived[0]

@@ -1456,3 +1456,47 @@ async def test_tool_outputs_are_wrapped_as_untrusted_data(
     content_index = content_text.index("hello-file-content")
     close_index = content_text.index(UNTRUSTED_CLOSE)
     assert open_index < content_index < close_index
+
+
+async def test_sensitive_path_reads_count_toward_violation_limit(
+    build_harness,
+) -> None:
+    harness = build_harness(
+        [
+            model_response(usage=usage(10), tool_calls=(_delegate_call(),)),
+            *[
+                model_response(
+                    usage=usage(20),
+                    tool_calls=(
+                        tool_call(
+                            "read_file",
+                            {"path": name},
+                            call_id=f"s{index}",
+                        ),
+                    ),
+                )
+                for index, name in enumerate(
+                    (".env", ".env.local", ".env.production"), 1
+                )
+            ],
+            model_response(usage=usage(10), content="调查完成。"),
+        ],
+        workspace_files={
+            "notes.txt": "x",
+            ".env": "A=1",
+            ".env.local": "B=2",
+            ".env.production": "C=3",
+        },
+    )
+
+    result = await harness.runtime.run("q", event_handler=harness.events)
+
+    payload = json.loads(result.tool_calls[0].result.output)
+    assert payload["status"] == "failed"
+    assert payload["failed_reason"] == "scope_violation"
+    assert payload["scope_attempts"] == 3
+    assert payload["findings"] == []
+
+    # 敏感路径被拒也计入越权：第 3 次后、下一个模型请求前硬停。
+    assert len(harness.sub_requests()) == 3
+    assert len(harness.adapter.requests) == 5

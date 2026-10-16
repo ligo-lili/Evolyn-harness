@@ -12,6 +12,7 @@ import asyncio
 import fnmatch
 import os
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from .path_scope import (
     prefix_scope_text,
     resolve_scope_roots,
 )
+from .redaction import is_sensitive_path, sensitive_rejection_text
 
 MAX_GREP_RESULTS = 200
 DEFAULT_GREP_RESULTS = 60
@@ -216,6 +218,13 @@ class GrepTool(BaseTool):
         )
         if not target.exists():
             raise ValueError(f"path does not exist: {path!r}")
+        relative = (
+            "."
+            if target == self._workspace_root
+            else target.relative_to(self._workspace_root).as_posix()
+        )
+        if is_sensitive_path(relative):
+            raise ValueError(sensitive_rejection_text(path))
         return (target,)
 
     def _search(
@@ -234,6 +243,11 @@ class GrepTool(BaseTool):
                 if scanned > MAX_SCAN_FILES:
                     truncated = True
                     break
+                relative = file.relative_to(
+                    self._workspace_root
+                ).as_posix()
+                if is_sensitive_path(relative):
+                    continue
                 if glob_filter and not fnmatch.fnmatch(
                     file.name, glob_filter
                 ):
@@ -248,9 +262,6 @@ class GrepTool(BaseTool):
                     continue
                 if "\x00" in text:
                     continue
-                relative = file.relative_to(
-                    self._workspace_root
-                ).as_posix()
                 for line_number, line in enumerate(
                     text.splitlines(), start=1
                 ):
@@ -352,6 +363,8 @@ class GlobTool(BaseTool):
                 relative = file.relative_to(
                     self._workspace_root
                 ).as_posix()
+                if is_sensitive_path(relative):
+                    continue
                 if not _glob_match(relative, file.name, pattern):
                     continue
                 files.append(relative)
@@ -443,7 +456,9 @@ class _GitTool(BaseTool):
             raise ValueError(
                 f"git {command} failed: {detail.splitlines()[0][:300]}"
             )
-        output, truncated = _bound_git_output(stdout)
+        output, truncated = _bound_git_output(
+            _filter_git_output(command, stdout)
+        )
         return {
             "command": " ".join(["git", *args]),
             "output": output,
@@ -457,12 +472,19 @@ class _GitTool(BaseTool):
             return list(self._prefixes or [])
         if not isinstance(path, str):
             raise ValueError("'path' must be a string")
-        assert_relative_within_scope(
+        target = assert_relative_within_scope(
             self._workspace_root,
             path,
             self._prefixes,
             allow_root=True,
         )
+        relative = (
+            "."
+            if target == self._workspace_root
+            else target.relative_to(self._workspace_root).as_posix()
+        )
+        if is_sensitive_path(relative):
+            raise ValueError(sensitive_rejection_text(path))
         return [path]
 
 
@@ -661,6 +683,106 @@ def _bound_git_output(text: str) -> tuple[str, bool]:
         output = output[:MAX_GIT_OUTPUT_CHARS]
         truncated = True
     return output, truncated
+
+
+_PATCH_SECTION_MARKER = (
+    "[one file section was removed by the sensitive path policy]"
+)
+
+
+def _strip_ab_prefix(path: str) -> str:
+    if path[:2] in ("a/", "b/"):
+        return path[2:]
+    return path
+
+
+def _diff_header_paths(line: str) -> tuple[str, str] | None:
+    """解析 ``diff --git a/… b/…`` 行；无法解析返回 None（按敏感处理）。"""
+
+    rest = line[len("diff --git ") :]
+    if rest.startswith('"'):
+        try:
+            tokens = shlex.split(rest)
+        except ValueError:
+            return None
+        if len(tokens) != 2:
+            return None
+        return _strip_ab_prefix(tokens[0]), _strip_ab_prefix(tokens[1])
+    index = rest.rfind(" b/")
+    if index < 0 or not rest.startswith("a/"):
+        return None
+    return _strip_ab_prefix(rest[:index]), _strip_ab_prefix(rest[index + 1 :])
+
+
+def _filter_patch(text: str) -> str:
+    """丢弃 git 历史中命中敏感路径策略的文件片段（HEAD 祖先链同样过滤）。"""
+
+    kept: list[str] = []
+    section: list[str] | None = None
+    section_kept = True
+
+    def flush() -> None:
+        if section is None:
+            return
+        if section_kept:
+            kept.extend(section)
+        elif not kept or kept[-1] != _PATCH_SECTION_MARKER:
+            kept.append(_PATCH_SECTION_MARKER)
+
+    for line in text.split("\n"):
+        if line.startswith("diff --git "):
+            flush()
+            paths = _diff_header_paths(line)
+            section_kept = paths is not None and not any(
+                is_sensitive_path(path) for path in paths
+            )
+            section = [line]
+            continue
+        if section is None:
+            kept.append(line)
+        else:
+            section.append(line)
+    flush()
+    return "\n".join(kept)
+
+
+def _unquote_status_path(text: str) -> str:
+    text = text.strip()
+    if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+        return text[1:-1]
+    return text
+
+
+def _filter_status(text: str) -> str:
+    """隐去状态行里命中敏感路径策略的条目（含重命名两侧）。"""
+
+    kept: list[str] = []
+    for line in text.split("\n"):
+        stripped = line.rstrip()
+        if len(stripped) < 4 or stripped.startswith("## "):
+            kept.append(line)
+            continue
+        rest = stripped[3:]
+        if " -> " in rest:
+            left, right = rest.split(" -> ", 1)
+            paths = [
+                _unquote_status_path(left),
+                _unquote_status_path(right),
+            ]
+        else:
+            paths = [_unquote_status_path(rest)]
+        if any(is_sensitive_path(path) for path in paths):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _filter_git_output(command: str, text: str) -> str:
+    if command == "status":
+        return _filter_status(text)
+    if command in ("diff", "show"):
+        return _filter_patch(text)
+    return text
 
 
 __all__ = [

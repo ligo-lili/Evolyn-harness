@@ -208,3 +208,73 @@ def test_build_scoped_tools_reports_missing_registry_tool(tmp_path: Path) -> Non
         build_scoped_tools(parse_grants(["read_repo"]), ToolRegistry(), tmp_path)
     with pytest.raises(CapabilityError):
         build_scoped_tools(parse_grants(["web_search"]), ToolRegistry(), tmp_path)
+
+
+async def test_scoped_read_file_rejects_sensitive_paths_with_marker(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("print('hi')", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=1", encoding="utf-8")
+    (tmp_path / "keys").mkdir()
+    (tmp_path / "keys" / "server.pem").write_text("pem", encoding="utf-8")
+
+    tools = build_scoped_tools(
+        parse_grants(["read_repo"]),
+        _registry(tmp_path),
+        tmp_path,
+    )
+    read_tool = _tool(tools, "read_file")
+
+    assert "hi" in await read_tool.execute({"path": "src/app.py"})
+    # 敏感路径即使落在授权范围内也拒绝，消息带越权标记供计数。
+    for bad in (".env", "keys/server.pem"):
+        with pytest.raises(ValueError, match="scope_violation"):
+            await read_tool.execute({"path": bad})
+
+
+async def test_scoped_read_file_redacts_secrets_before_returning(
+    tmp_path: Path,
+) -> None:
+    token = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
+    (tmp_path / "config.py").write_text(
+        f"API_KEY = '{token}'\n", encoding="utf-8"
+    )
+
+    tools = build_scoped_tools(
+        parse_grants(["read_repo"]),
+        _registry(tmp_path),
+        tmp_path,
+    )
+    read_tool = _tool(tools, "read_file")
+
+    result = await read_tool.execute({"path": "config.py"})
+
+    assert token not in result
+    assert "[REDACTED:openai-key]" in result
+
+
+async def test_scoped_list_files_hides_sensitive_entries(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("a", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=1", encoding="utf-8")
+    (tmp_path / "keys").mkdir()
+    (tmp_path / "keys" / "server.pem").write_text("pem", encoding="utf-8")
+
+    tools = build_scoped_tools(
+        parse_grants(["read_repo"]),
+        _registry(tmp_path),
+        tmp_path,
+    )
+    list_tool = _tool(tools, "list_files")
+
+    payload = await list_tool.execute({})
+    assert payload["files"] == ["src/app.py"]
+    assert payload["count"] == 1
+
+    # 直接列出敏感目录同样被拒绝并计数。
+    with pytest.raises(ValueError, match="scope_violation"):
+        await list_tool.execute({"directory": ".env"})
+

@@ -34,11 +34,42 @@ from .path_scope import (
     assert_relative_within_scope,
     prefix_scope_text,
 )
+from .redaction import (
+    is_sensitive_path,
+    redact_secrets,
+    sensitive_rejection_text,
+)
 from .ticket import intersect_prefixes
 
 _ALLOWED_FETCH_METHODS = ("GET", "HEAD")
 # 单次读取上限：超出部分截断并显式标注（任务级累计输出上限见预算收口）。
 MAX_SCOPED_READ_CHARS = 120_000
+
+
+def _resolved_relative(target: Path, workspace_root: Path) -> str:
+    if target == workspace_root:
+        return "."
+    return target.relative_to(workspace_root).as_posix()
+
+
+def _filter_listing(payload: dict[str, Any]) -> dict[str, Any]:
+    """从 list_files 结果中隐去命中敏感路径策略的条目。"""
+
+    raw_files = payload.get("files")
+    if not isinstance(raw_files, list):
+        return payload
+    kept = [
+        item
+        for item in raw_files
+        if isinstance(item, str) and not is_sensitive_path(item)
+    ]
+    if len(kept) == len(raw_files):
+        return payload
+    updated = dict(payload)
+    updated["files"] = kept
+    if isinstance(updated.get("count"), int):
+        updated["count"] = len(kept)
+    return updated
 
 
 def read_grant_prefixes(
@@ -164,17 +195,22 @@ class ScopedReadFileTool(BaseTool):
         relative_path = arguments.get("path")
         if not isinstance(relative_path, str) or not relative_path:
             raise ValueError("'path' must be a non-empty string")
-        assert_relative_within_scope(
+        target = assert_relative_within_scope(
             self._workspace_root,
             relative_path,
             self._prefixes,
         )
+        if is_sensitive_path(_resolved_relative(target, self._workspace_root)):
+            raise ValueError(sensitive_rejection_text(relative_path))
         result = await self._delegate.execute(arguments)
-        if isinstance(result, str) and len(result) > MAX_SCOPED_READ_CHARS:
-            return (
-                f"{result[:MAX_SCOPED_READ_CHARS]}\n…[truncated: "
-                f"single read limit {MAX_SCOPED_READ_CHARS} chars reached]"
-            )
+        if isinstance(result, str):
+            # 先脱敏再截断：截断可能把密钥模式切成无法识别的残片。
+            result = redact_secrets(result)
+            if len(result) > MAX_SCOPED_READ_CHARS:
+                return (
+                    f"{result[:MAX_SCOPED_READ_CHARS]}\n…[truncated: "
+                    f"single read limit {MAX_SCOPED_READ_CHARS} chars reached]"
+                )
         return result
 
 
@@ -208,17 +244,21 @@ class ScopedListFilesTool(BaseTool):
         directory = arguments.get("directory", ".")
         if not isinstance(directory, str):
             raise ValueError("'directory' must be a string")
-        if self._prefixes is None:
-            return await self._delegate.execute(arguments)
         if directory.strip() in ("", "."):
-            return await self._list_prefix_roots()
-        assert_relative_within_scope(
+            if self._prefixes is None:
+                payload = await self._delegate.execute(arguments)
+            else:
+                payload = await self._list_prefix_roots()
+            return _filter_listing(payload)
+        target = assert_relative_within_scope(
             self._workspace_root,
             directory,
             self._prefixes,
             allow_root=True,
         )
-        return await self._delegate.execute(arguments)
+        if is_sensitive_path(_resolved_relative(target, self._workspace_root)):
+            raise ValueError(sensitive_rejection_text(directory))
+        return _filter_listing(await self._delegate.execute(arguments))
 
     async def _list_prefix_roots(self) -> dict[str, Any]:
         """默认目录：列出全部授权前缀，而不是整个工作区。"""

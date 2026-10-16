@@ -248,3 +248,109 @@ async def test_git_tools_reject_non_repo_and_out_of_scope_path(
         await log.execute({"path": "../outside"})
     with pytest.raises(ValueError):
         await log.execute({"max_count": "many"})
+
+
+async def test_grep_and_glob_skip_sensitive_paths(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "src").mkdir()
+    (workspace / "src" / "app.py").write_text(
+        "TOKEN_LOOKUP = 1\n", encoding="utf-8"
+    )
+    (workspace / ".env").write_text("TOKEN_LOOKUP=secret\n", encoding="utf-8")
+    (workspace / "keys").mkdir()
+    (workspace / "keys" / "server.pem").write_text(
+        "TOKEN_LOOKUP=secret\n", encoding="utf-8"
+    )
+
+    grep = GrepTool(workspace_root=workspace, prefixes=None)
+    payload = await grep.execute({"pattern": "TOKEN_LOOKUP"})
+    assert [item["path"] for item in payload["results"]] == ["src/app.py"]
+
+    # 显式指向敏感文件被拒绝并带越权标记。
+    for bad in (".env", "keys/server.pem"):
+        with pytest.raises(ValueError, match="scope_violation"):
+            await grep.execute({"pattern": "TOKEN_LOOKUP", "path": bad})
+
+    glob = GlobTool(workspace_root=workspace, prefixes=None)
+    payload = await glob.execute({"pattern": "**/*"})
+    assert "src/app.py" in payload["files"]
+    assert ".env" not in payload["files"]
+    assert "keys/server.pem" not in payload["files"]
+
+
+async def test_git_tools_filter_sensitive_paths_from_history(
+    tmp_path: Path,
+) -> None:
+    workspace = _make_repo(tmp_path)
+    (workspace / ".env").write_text(
+        "API_KEY=sk-old-key-value-1234567890\n", encoding="utf-8"
+    )
+    (workspace / "src" / "app.py").write_text(
+        "def login():\n    return 2\n", encoding="utf-8"
+    )
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-q", "-m", "add env and change app")
+
+    show = GitShowTool(workspace_root=workspace, prefixes=None)
+    payload = await show.execute({"rev": "HEAD"})
+    assert "src/app.py" in payload["output"]
+    assert ".env" not in payload["output"]
+    assert "sk-old-key-value" not in payload["output"]
+    assert "one file section was removed" in payload["output"]
+
+    # 工作区状态同样隐去敏感路径条目（正向对照保留）。
+    (workspace / ".env").write_text("API_KEY=sk-new-key-value-1234567890\n")
+    (workspace / "src" / "app.py").write_text(
+        "def login():\n    return 3\n", encoding="utf-8"
+    )
+    status = GitStatusTool(workspace_root=workspace, prefixes=None)
+    payload = await status.execute({})
+    assert "src/app.py" in payload["output"]
+    assert ".env" not in payload["output"]
+
+    # 显式指向敏感路径的 git 查询被拒绝并带越权标记。
+    diff = GitDiffTool(workspace_root=workspace, prefixes=None)
+    with pytest.raises(ValueError, match="scope_violation"):
+        await diff.execute({"path": ".env"})
+    with pytest.raises(ValueError, match="scope_violation"):
+        await show.execute({"rev": "HEAD", "path": ".env"})
+
+
+def test_filter_patch_and_status_handle_quoted_and_renamed_paths() -> None:
+    from app.subagent.explore_tools import _filter_patch, _filter_status
+
+    patch = (
+        'diff --git "a/wei rd.txt" "b/wei rd.txt"\n'
+        '--- "a/wei rd.txt"\n'
+        '+++ "b/wei rd.txt"\n'
+        "+ok\n"
+        "diff --git a/.env b/.env\n"
+        "--- a/.env\n"
+        "+++ b/.env\n"
+        "+SECRET=1\n"
+        "diff --git a/src/a.py b/src/a.py\n"
+        "--- a/src/a.py\n"
+        "+++ b/src/a.py\n"
+        "+x\n"
+    )
+    filtered = _filter_patch(patch)
+    assert "wei rd.txt" in filtered
+    assert "SECRET=1" not in filtered
+    assert ".env" not in filtered
+    assert "src/a.py" in filtered
+    assert "one file section was removed" in filtered
+
+    status = (
+        "## main\n"
+        " M src/app.py\n"
+        ' M ".env"\n'
+        "?? keys/server.pem\n"
+        "R  a.txt -> .ssh/config\n"
+        "?? notes.txt\n"
+    )
+    filtered_status = _filter_status(status)
+    assert "src/app.py" in filtered_status
+    assert ".env" not in filtered_status
+    assert "server.pem" not in filtered_status
+    assert ".ssh/config" not in filtered_status
+    assert "notes.txt" in filtered_status
