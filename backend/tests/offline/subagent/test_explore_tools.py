@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -499,3 +500,63 @@ async def test_git_diff_filters_conflicted_combined_diff(
     assert "SECRET" not in payload["output"]
     assert "diff --cc" not in payload["output"]
     assert "one file section was removed" in payload["output"]
+
+
+async def test_grep_and_glob_skip_symlinked_files(
+    tmp_path: Path, symlink_support: None
+) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "src").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text(
+        "LEAKED-TOKEN-12345\n", encoding="utf-8"
+    )
+    (workspace / "src" / "real.txt").write_text(
+        "LEAKED-TOKEN-12345\n", encoding="utf-8"
+    )
+    (workspace / "src" / "linked.txt").symlink_to(outside / "secret.txt")
+    (workspace / "src" / "inner.txt").symlink_to(
+        workspace / "src" / "real.txt"
+    )
+
+    grep = GrepTool(workspace_root=workspace, prefixes=("src",))
+    payload = await grep.execute({"pattern": "LEAKED-TOKEN"})
+    # 链接一律不穿透：工作区外与工作区内的文件链接都跳过。
+    assert [item["path"] for item in payload["results"]] == ["src/real.txt"]
+
+    glob = GlobTool(workspace_root=workspace, prefixes=("src",))
+    payload = await glob.execute({"pattern": "**/*.txt"})
+    assert payload["files"] == ["src/real.txt"]
+
+
+async def test_grep_and_glob_do_not_enter_directory_junctions(
+    tmp_path: Path,
+) -> None:
+    if sys.platform != "win32":
+        pytest.skip("目录 junction 是 Windows 特性")
+
+    workspace = _workspace(tmp_path)
+    (workspace / "src").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text(
+        "LEAKED-TOKEN-12345\n", encoding="utf-8"
+    )
+    junction = workspace / "src" / "linked_dir"
+    created = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(junction), str(outside)],
+        capture_output=True,
+        text=True,
+    )
+    if created.returncode != 0:
+        pytest.skip(f"当前环境无法创建 junction：{created.stderr.strip()}")
+
+    grep = GrepTool(workspace_root=workspace, prefixes=("src",))
+    payload = await grep.execute({"pattern": "LEAKED-TOKEN"})
+    assert payload["count"] == 0
+    assert payload["scanned_files"] == 0
+
+    glob = GlobTool(workspace_root=workspace, prefixes=("src",))
+    payload = await glob.execute({"pattern": "**/*.txt"})
+    assert payload["files"] == []

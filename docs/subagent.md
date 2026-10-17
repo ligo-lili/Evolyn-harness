@@ -63,7 +63,8 @@ allowed-tools，只能收窄，不能扩大。
   主 Agent 工具注册表。
 - 路径校验统一走 `assert_relative_within_scope`：解析真实路径（拒绝 `..`
   与符号链接逃逸）后比对前缀集合；`read_file`/`list_files` 是主注册表
-  工具的受限包装，grep/glob/git 在搜索根与 pathspec 处校验。
+  工具的受限包装；grep/glob 在搜索根校验前缀，扫描时不穿透符号链接与
+  Windows 目录 junction（逐条目剪枝）；git 在 pathspec 处校验。
 - 单次读取上限 **120k 字符**（超出截断并标注，脱敏先于截断）；grep/glob/
   git 结果数量与字符数均有上限；`git_log` 默认 20 条、`git_show` 的 `rev`
   必须是 HEAD 祖先链上的提交。

@@ -1,7 +1,8 @@
 """子代理专用的只读探索工具：grep / glob / git 系列。
 
 构造时绑定工作区与任务单范围（前缀集合），每次调用都在执行层做确定性
-路径校验；输出有硬上限（结果条数 / 行数 / 字符数），保证回流的数据有界。
+路径校验；grep / glob 的扫描不穿透符号链接与 Windows 目录 junction；
+输出有硬上限（结果条数 / 行数 / 字符数），保证回流的数据有界。
 git 工具只读 HEAD 祖先链：显式 argv（不走 shell）、最小环境、禁用分页与
 交互提示，不执行任何写操作。
 """
@@ -13,6 +14,7 @@ import fnmatch
 import os
 import re
 import shlex
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +59,15 @@ _SKIP_DIRS = frozenset(
     }
 )
 
+# Windows 重解析点里属「链接」语义的 tag：目录 junction 与符号链接。
+# 其余重解析点（云占位 / 去重等）不改变路径归属，仍按普通文件处理。
+_LINK_REPARSE_TAGS = frozenset(
+    {
+        0xA0000003,  # IO_REPARSE_TAG_MOUNT_POINT（目录 junction）
+        0xA000000C,  # IO_REPARSE_TAG_SYMLINK
+    }
+)
+
 _REV_PATTERN = re.compile(r"^(?:HEAD(?:~\d+)?|[0-9a-fA-F]{4,40})$")
 
 
@@ -70,16 +81,48 @@ def _bound_count(value: Any, *, default: int, limit: int, field: str) -> int:
     return min(value, limit)
 
 
+def _is_link_like(path: Path) -> bool:
+    """路径本身是否为符号链接 / 目录 junction（“链接类”条目）。
+
+    ``os.walk`` 默认不跟随符号链接，但 Windows 的目录 junction 会被当成
+    普通目录进入；扫描前统一用它剪枝。``os.lstat`` 失败时按链接处理，
+    宁可漏扫不越界。
+    """
+
+    try:
+        info = path.lstat()
+    except OSError:
+        return True
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    return getattr(info, "st_reparse_tag", 0) in _LINK_REPARSE_TAGS
+
+
 def _iter_files(root: Path) -> list[Path]:
+    """列出范围内的常规文件，不穿透链接。
+
+    扫描只沿真实目录进行：目录 junction / 目录符号链接不展开，文件符号
+    链接一律跳过（含工作区内部的链接；与 ripgrep 的默认行为一致），避免
+    grep / glob 通过链接读到授权范围之外的内容。单文件读取仍由
+    ``assert_relative_within_scope`` 按真实路径校验。
+    """
+
     if root.is_file():
-        return [root]
+        return [] if _is_link_like(root) else [root]
     files: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
+        current = Path(dirpath)
         dirnames[:] = sorted(
-            name for name in dirnames if name not in _SKIP_DIRS
+            name
+            for name in dirnames
+            if name not in _SKIP_DIRS
+            and not _is_link_like(current / name)
         )
         for name in sorted(filenames):
-            files.append(Path(dirpath) / name)
+            candidate = current / name
+            if _is_link_like(candidate):
+                continue
+            files.append(candidate)
     return files
 
 
