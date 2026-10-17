@@ -8,7 +8,12 @@
 
 from __future__ import annotations
 
-from app.application import DEFAULT_SYSTEM_PROMPT, Application
+from app.application import (
+    BASE_SYSTEM_PROMPT,
+    DEFAULT_SYSTEM_PROMPT,
+    DELEGATION_SYSTEM_PROMPT,
+    Application,
+)
 from app.models.config import ModelSettings
 from app.models.registry import ModelAdapterRegistry
 
@@ -66,3 +71,18 @@ def test_application_allows_explicitly_disabling_system_prompt() -> None:
     )
 
     assert application.system_prompt == ""
+
+
+def test_base_prompt_excludes_delegation_guidance() -> None:
+    # A 臂（无子代理）用 BASE；委派指引只在注册 subagent_run 时追加。
+    assert "subagent_run" not in BASE_SYSTEM_PROMPT
+    assert "subagent_run" in DELEGATION_SYSTEM_PROMPT
+    assert DEFAULT_SYSTEM_PROMPT == (
+        BASE_SYSTEM_PROMPT + DELEGATION_SYSTEM_PROMPT
+    )
+
+
+def test_base_prompt_guides_search_before_repeated_reads() -> None:
+    # 主 Agent 检索能力与子代理对齐：先 grep / glob 缩小范围再精读。
+    assert "grep / glob" in BASE_SYSTEM_PROMPT
+    assert "不要反复重读" in BASE_SYSTEM_PROMPT

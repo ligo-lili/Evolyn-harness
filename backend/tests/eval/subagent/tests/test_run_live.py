@@ -46,7 +46,7 @@ def _args(tmp_path: Path) -> argparse.Namespace:
         price_output=None,
         currency="USD",
         max_steps=40,
-        max_tool_rounds=40,
+        max_tool_rounds=35,
         max_context_reduction=0.5,
         max_correctness_drop=0.05,
         max_cost_ratio=1.3,

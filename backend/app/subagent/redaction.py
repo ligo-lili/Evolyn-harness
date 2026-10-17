@@ -18,7 +18,7 @@ import math
 import re
 from typing import Any
 
-from .path_scope import SCOPE_VIOLATION_MARKER
+from app.tools.builtin._scope import SCOPE_VIOLATION_MARKER
 
 # ---------------------------------------------------------------------------
 # 敏感路径策略
@@ -91,6 +91,14 @@ def sensitive_rejection_text(relative: str) -> str:
         f"{SCOPE_VIOLATION_MARKER}: sensitive path {relative!r} is excluded "
         "by policy (credentials and keys are not readable)"
     )
+
+
+def sensitive_exclusion(relative: str) -> str | None:
+    """搜索工具的排除钩子：命中敏感路径返回拒绝消息，否则 ``None``。"""
+
+    if is_sensitive_path(relative):
+        return sensitive_rejection_text(relative)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -194,5 +202,6 @@ __all__ = [
     "is_sensitive_path",
     "redact_secrets",
     "redact_value",
+    "sensitive_exclusion",
     "sensitive_rejection_text",
 ]

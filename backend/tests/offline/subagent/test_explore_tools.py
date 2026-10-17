@@ -17,6 +17,7 @@ from app.subagent import (
     GlobTool,
     GrepTool,
 )
+from app.subagent.redaction import sensitive_exclusion
 from app.subagent.scoped_tools import MAX_SCOPED_READ_CHARS
 
 GIT = shutil.which("git")
@@ -263,7 +264,11 @@ async def test_grep_and_glob_skip_sensitive_paths(tmp_path: Path) -> None:
         "TOKEN_LOOKUP=secret\n", encoding="utf-8"
     )
 
-    grep = GrepTool(workspace_root=workspace, prefixes=None)
+    grep = GrepTool(
+        workspace_root=workspace,
+        prefixes=None,
+        path_exclusion=sensitive_exclusion,
+    )
     payload = await grep.execute({"pattern": "TOKEN_LOOKUP"})
     assert [item["path"] for item in payload["results"]] == ["src/app.py"]
 
@@ -276,7 +281,11 @@ async def test_grep_and_glob_skip_sensitive_paths(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="scope_violation"):
         await grep.execute({"pattern": "TOKEN_LOOKUP", "path": ".env.local"})
 
-    glob = GlobTool(workspace_root=workspace, prefixes=None)
+    glob = GlobTool(
+        workspace_root=workspace,
+        prefixes=None,
+        path_exclusion=sensitive_exclusion,
+    )
     payload = await glob.execute({"pattern": "**/*"})
     assert "src/app.py" in payload["files"]
     assert ".env" not in payload["files"]

@@ -30,17 +30,26 @@ subagent/
 
 ## 两臂定义
 
-- **A 臂（direct）**：主 Agent 直接探索，不注册委派工具，基线。
+- **A 臂（direct）**：无子代理的产品反事实——不注册委派工具，提示词为
+  `BASE_SYSTEM_PROMPT`（产品提示词去掉委派段）。
 - **B 臂（delegate）**：现行 V1 委派——`subagent_run` 以 deferred 注册
-  （与 `app/application.py` 一致），主 Agent 自行决定是否委派。
+  （与 `app/application.py` 一致），提示词为 `DEFAULT_SYSTEM_PROMPT`
+  （BASE + 委派段），主 Agent 自行决定是否委派。
 
-两臂共用同一装配：系统提示词、步数上限、只读工具集（read_file /
-list_files / get_current_time）、Evidence 链路（工具输出与子代理发现原文
-落 `root/eval.db`，`evidence_search` / `evidence_read` 按需加载）、主 Run
-的 Run Budget 关闭（两臂一致，评测关注自然完成下的成本）。B 臂的子代理
-沿用生产默认子预算（tier 三档 quick/medium/thorough + 父 Run 累计上限），
-与生产一致、不另行放宽。唯一差异是 B 臂多一个委派工具，因此对比的是
-「有无委派能力」。B 臂的子代理 Trace 同样写入 `eval.db`，用于复盘调查过程。
+两臂共用同一装配：工具集（read_file / list_files / grep / glob /
+get_current_time）、步数上限（40）与工具轮上限（35，小于步数上限，保证
+撞顶前触发一次强制收口——只作答、不带工具）、Evidence 链路（工具输出与
+子代理发现原文落 `root/eval.db`，`evidence_search` / `evidence_read` 按需
+加载）、主 Run 的 Run Budget 关闭（两臂一致，评测关注自然完成下的成本）。
+B 臂的子代理沿用生产默认子预算（tier 三档 quick/medium/thorough + 父 Run
+累计上限），与生产一致、不另行放宽。唯一差异是 B 臂多一个委派工具及其
+委派段提示词，因此对比的是「有无委派能力」。B 臂的子代理 Trace 同样写入
+`eval.db`，用于复盘调查过程。
+
+> 第 3 轮校准（2026-10-17，工具对齐）：grep / glob 升为主/子共用工具，
+> 两臂工具集完全一致；A 臂提示词为 BASE。定位类任务不再预期 B 占优，
+> B 的预期优势集中在需要通读大量文件的消化类任务。引用旧装配口径的
+> 试跑报告（trial2 及以前）须注明该差异。
 
 ## 指标口径（报告不得换口径）
 

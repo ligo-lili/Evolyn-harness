@@ -46,6 +46,7 @@ from app.models.types import (
     ModelUsage,
     add_model_usage,
 )
+from app.tools.builtin._scope import SCOPE_VIOLATION_MARKER
 from app.tools.executor import ToolExecutor
 from app.tools.hooks import ToolExecutionContext
 from app.tools.registry import ToolRegistry
@@ -66,7 +67,6 @@ from .findings import (
     RecordEvidence,
     RecordFindingTool,
 )
-from .path_scope import SCOPE_VIOLATION_MARKER
 from .scoped_tools import build_scoped_tools, read_grant_prefixes
 from .settings import SubagentSettings
 from .submit import SUBMIT_RESULT_TOOL_NAME, SubmitResultTool

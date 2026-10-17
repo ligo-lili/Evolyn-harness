@@ -140,8 +140,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-tool-rounds",
         type=int,
-        default=40,
-        help="两臂统一的主 Agent 工具轮上限（默认 40）。",
+        default=35,
+        help="两臂统一的主 Agent 工具轮上限（默认 35；小于步数上限，"
+        "保证撞顶前收口）。",
     )
     parser.add_argument(
         "--max-context-reduction",

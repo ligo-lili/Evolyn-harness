@@ -2,8 +2,9 @@
 
 包装只收紧不放开：作用域校验（路径前缀 / 主机白名单 / 方法白名单 / 任务单
 scope_paths）全部在本地确定性完成，真正的执行仍委托给主注册表里的原工具
-实例；grep / glob / git 系列是子代理专用工具（见 ``explore_tools.py``），
-不进入主 Agent 的工具面。
+实例；grep / glob 是主/子共用的只读探索工具（见
+``app/tools/builtin/explore.py``，子代理按前缀收窄并接入敏感路径排除），
+git 系列仍是子代理专用工具（见 ``explore_tools.py``）。
 """
 
 from __future__ import annotations
@@ -16,7 +17,13 @@ from urllib.parse import urlsplit
 
 from app.models.types import ToolDefinition, ToolPermission
 from app.tools.base import BaseTool
+from app.tools.builtin._scope import (
+    SCOPE_VIOLATION_MARKER,
+    assert_relative_within_scope,
+    prefix_scope_text,
+)
 from app.tools.builtin._workspace import workspace_root_path
+from app.tools.builtin.explore import GlobTool, GrepTool
 from app.tools.builtin.list_files import MAX_LISTED_FILES
 from app.tools.registry import ToolRegistry
 
@@ -26,17 +33,11 @@ from .explore_tools import (
     GitLogTool,
     GitShowTool,
     GitStatusTool,
-    GlobTool,
-    GrepTool,
-)
-from .path_scope import (
-    SCOPE_VIOLATION_MARKER,
-    assert_relative_within_scope,
-    prefix_scope_text,
 )
 from .redaction import (
     is_sensitive_path,
     redact_secrets,
+    sensitive_exclusion,
     sensitive_rejection_text,
 )
 from .ticket import intersect_prefixes
@@ -133,10 +134,19 @@ def build_scoped_tools(
                 prefixes=prefixes,
             )
         )
-        # 子代理专用只读探索工具（不进主 Agent 工具面）。
+        # grep / glob 与主 Agent 同源（builtin explore），子代理按前缀
+        # 收窄并接入敏感路径排除；git 系列为子代理专用。
         for explore_tool in (
-            GrepTool(workspace_root=workspace_root, prefixes=prefixes),
-            GlobTool(workspace_root=workspace_root, prefixes=prefixes),
+            GrepTool(
+                workspace_root=workspace_root,
+                prefixes=prefixes,
+                path_exclusion=sensitive_exclusion,
+            ),
+            GlobTool(
+                workspace_root=workspace_root,
+                prefixes=prefixes,
+                path_exclusion=sensitive_exclusion,
+            ),
             GitStatusTool(workspace_root=workspace_root, prefixes=prefixes),
             GitDiffTool(workspace_root=workspace_root, prefixes=prefixes),
             GitLogTool(workspace_root=workspace_root, prefixes=prefixes),

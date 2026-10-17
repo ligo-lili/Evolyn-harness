@@ -21,12 +21,15 @@ from typing import Any
 
 from app.models.types import ToolDefinition, ToolPermission
 from app.tools.base import BaseTool
+from app.tools.builtin._scope import (
+    SCOPE_VIOLATION_MARKER,
+    assert_relative_within_scope,
+)
 from app.tools.builtin._workspace import workspace_root_path
+from app.tools.builtin.explore import GrepTool
 from app.tools.hooks import ToolExecutionContext
 
-from .explore_tools import GrepTool
-from .path_scope import SCOPE_VIOLATION_MARKER, assert_relative_within_scope
-from .redaction import is_sensitive_path, redact_secrets
+from .redaction import is_sensitive_path, redact_secrets, sensitive_exclusion
 from .ticket import EVIDENCE_TYPES, TicketError, normalize_scope_path
 
 RECORD_FINDING_TOOL_NAME = "record_finding"
@@ -326,7 +329,11 @@ class FindingLedger:
                 if item not in checked:
                     checked.append(item)
             prefixes = tuple(checked)
-        tool = GrepTool(workspace_root=self._workspace_root, prefixes=prefixes)
+        tool = GrepTool(
+            workspace_root=self._workspace_root,
+            prefixes=prefixes,
+            path_exclusion=sensitive_exclusion,
+        )
         try:
             result = await tool.execute({"pattern": pattern, "max_results": 1})
         except ValueError as exc:

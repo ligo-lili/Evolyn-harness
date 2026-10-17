@@ -321,6 +321,18 @@ Memory Policy 消息不转发。父上下文没有记忆时如实注入空并记
   12.7k 但累计 23.9 万 token、40 步撞顶 0 分——单看峰值会低估基线浪费，
   负向证明类任务的分化更多体现在累计 token 与正确率；③ 评测装配中主 Run
   预算关闭、子代理沿用生产默认子预算，README / harness 口径已修正说明。
+- 2026-10-17（工具对齐 + 收口修复，第 3 轮校准）：主 Agent 检索能力与子代理
+  对齐——grep / glob 从子代理专用工具升为**主/子共用的内置工具**
+  （`app/tools/builtin/explore.py`；子代理仍按任务前缀收窄、接入敏感路径
+  排除，git 系列维持子代理专用）。`DEFAULT_SYSTEM_PROMPT` 拆为
+  `BASE_SYSTEM_PROMPT` + `DELEGATION_SYSTEM_PROMPT`：委派指引只在注册
+  `subagent_run` 的装配中追加（`SUBAGENT_ENABLED=false` 时运行时提示词只含
+  BASE），触发口径从「优先委派」改为**先探后决**（一两次检索能定位的自己
+  做；通读大量文件、跨模块综合、全仓盘点或可并行调研才委派；价值主张 =
+  主上下文隔离）。评测 harness 收口修复：`max_tool_rounds` 默认 40 → 35
+  （小于 `max_steps` 40），工具轮先到上限并触发一次强制收口，A 臂不再因
+  「撞步数上限无最终作答」记 0；A 臂提示词改用 BASE，两臂工具集一致。
+  重跑结果与 Go/No-go 判定待归档。
 
 ## 配置
 

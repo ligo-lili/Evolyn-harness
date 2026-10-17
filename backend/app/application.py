@@ -151,10 +151,12 @@ _DEFERRED_TOOL_NAMES = frozenset(
     }
 )
 
-DEFAULT_SYSTEM_PROMPT = (
+BASE_SYSTEM_PROMPT = (
     "你是 Evolyn，一个本地运行的智能助理。请使用用户的语言回答。"
     "调用工具时优先使用已有结果；网页搜索通常只需一到两次，获得可用结果后"
     "立即整理回答，不要为了追求完美而反复改写相同查询。"
+    "检索代码或文件时，先用 grep / glob 定位、再按需 read_file 精读；"
+    "读过的内容不要反复重读。"
     "只有用户目标确实依赖实时或外部信息、或者需要操作本地环境时才调用工具；"
     "普通知识问答、能力说明，以及请求的工具不存在时直接如实回答，不要为了"
     "试探或确认而调用搜索、文件或其他无关工具。"
@@ -168,11 +170,23 @@ DEFAULT_SYSTEM_PROMPT = (
     "当摘要缺少旧对话中的用户约束或决定时，用 tool_search 激活 history_search/"
     "history_read；当历史工具输出被截断、清理或摘要时，激活 evidence_search/"
     "evidence_read 按需取回不可变原文。无法取回时如实说明，不要凭摘要补造。"
-    "只读调查任务应优先委派：预计要读取 8 个以上文件、全仓或大面积检索"
-    "（盘点、审计）、负向证明（哪些没有/未使用/缺失）、跨模块调用链、或"
-    "可并行搜索时，先用 tool_search 激活 subagent_run，把调查交给子代理，"
-    "随后只按需核对关键结论；不要先自行通读大量文件再委派——子代理看不到"
-    "你的探索过程，先读会造成重复劳动。少量文件的快速定位自己直接查看。"
+    "如果生成了用户需要保留、下载或查看的文件（如报告、CSV、代码、图片），"
+    "在最终回答前调用 artifact_publish 发布它；如果最终交付的是结果链接，"
+    "也用 artifact_publish 发布。普通中间文件、临时文件、Trace、"
+    "Computer Screenshot 不要发布为 Artifact；没有实际交付物时不要调用"
+    "artifact_publish。"
+)
+
+# 委派指引只在注册了 ``subagent_run`` 的装配里追加：Application 运行时按
+# ``SUBAGENT_ENABLED`` 决定；评测 A 臂用 BASE 作为「没有子代理的产品」反事实。
+DELEGATION_SYSTEM_PROMPT = (
+    "只读调查先探后决：一两次 grep / glob / read_file 能定位的问题自己做；"
+    "当调查需要通读大量文件、跨模块综合、全仓盘点，或可并行展开时，"
+    "先用 tool_search 激活 subagent_run，把大范围阅读交给子代理——子代理在"
+    "独立上下文里完成检索与归纳，只把结论与证据回传，避免大量原文挤占当前"
+    "上下文。委派前不要先自行通读相关文件：子代理看不到你的探索过程，"
+    "先读会造成重复劳动；把已知锚点（文件、符号、已确认结论）写进 "
+    "known_facts，帮子代理少走弯路。"
     "委派时提交结构化任务单 ticket：goal 一句话目标、questions 要回答的"
     "问题、scope_paths 允许访问的路径范围（同时是执行层白名单，越界访问"
     "会被拒绝）、done_when 可判定的完成条件，并把已知结论与已读文件写进 "
@@ -189,12 +203,9 @@ DEFAULT_SYSTEM_PROMPT = (
     "重新委派还是自己接手，不要把未完成的调查当作已完成；续跑时把 "
     "continuation 里的已确认结论与 not_covered 填进新 ticket 的 "
     "known_facts、把 subagent_id 填进 continuation_of，避免重复扫描。"
-    "如果生成了用户需要保留、下载或查看的文件（如报告、CSV、代码、图片），"
-    "在最终回答前调用 artifact_publish 发布它；如果最终交付的是结果链接，"
-    "也用 artifact_publish 发布。普通中间文件、临时文件、Trace、"
-    "Computer Screenshot 不要发布为 Artifact；没有实际交付物时不要调用"
-    "artifact_publish。"
 )
+
+DEFAULT_SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + DELEGATION_SYSTEM_PROMPT
 
 
 def select_provider(
@@ -293,6 +304,7 @@ class Application:
             else None
         )
         # ``None`` 表示使用产品默认提示词；空字符串仍保留为显式关闭入口。
+        self._system_prompt_is_default = system_prompt is None
         self.system_prompt = (
             DEFAULT_SYSTEM_PROMPT if system_prompt is None else system_prompt
         )
@@ -650,12 +662,17 @@ class Application:
             else None
         )
 
+        # 子代理未启用：默认提示词去掉委派指引（工具不存在，避免误导模型）。
+        runtime_system_prompt = self.system_prompt
+        if self._system_prompt_is_default and subagent_runner is None:
+            runtime_system_prompt = BASE_SYSTEM_PROMPT
+
         runtime = AgentRuntime(
             self.registry,
             tool_registry,
             provider=self.provider,
             model=self.model,
-            system_prompt=self.system_prompt,
+            system_prompt=runtime_system_prompt,
             max_steps=self.max_steps,
             max_tool_rounds=self.max_tool_rounds,
             max_output_tokens=self.max_output_tokens,

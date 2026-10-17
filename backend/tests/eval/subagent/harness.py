@@ -1,17 +1,20 @@
 """A/B 两臂运行器：同一任务、同一夹具仓库、同一模型。
 
-- **A 臂（direct）**：主 Agent 直接探索（不注册委派工具），即基线；
+- **A 臂（direct）**：无子代理的产品反事实——不注册委派工具，系统提示词为
+  ``BASE_SYSTEM_PROMPT``（产品提示词去掉委派段），工具集与 B 臂完全一致；
 - **B 臂（delegate）**：现行 V1 委派——注册 ``subagent_run``（deferred，
-  与 ``app/application.py`` 的装配一致），主 Agent 自行决定是否委派。
+  与 ``app/application.py`` 的装配一致），系统提示词为
+  ``DEFAULT_SYSTEM_PROMPT``（BASE + 委派段），主 Agent 自行决定是否委派。
 
-两臂共用同一套装配参数（系统提示词、步数上限、工具集、Evidence 链路、
-关闭 Run Budget），唯一差异是 B 臂多一个委派工具；这样比较的是「有无委派
-能力」而不是装配差异。本模块只负责运行与采集，不做判定（判定见
-``reporting.py``）。
+两臂共用同一套装配参数（步数上限、工具集、Evidence 链路、关闭 Run Budget），
+唯一差异是 B 臂多一个委派工具及其委派段提示词；这样比较的是「有无委派
+能力」而不是装配差异。``max_tool_rounds``（35）小于 ``max_steps``（40），
+保证撞顶前触发一次「只作答、不带工具」的强制收口（两臂一致）。本模块只
+负责运行与采集，不做判定（判定见 ``reporting.py``）。
 
-评测环境刻意收窄：仅保留只读探索工具（read_file / list_files /
-get_current_time），移除写入、shell、网络工具，避免评测改变工作区或产生
-额外费用。Evidence 链路与生产同源：工具输出与子代理发现原文落
+评测环境刻意收窄：仅保留只读探索工具（read_file / list_files / grep /
+glob / get_current_time），移除写入、shell、网络工具，避免评测改变工作区
+或产生额外费用。Evidence 链路与生产同源：工具输出与子代理发现原文落
 ``root/eval.db``，``evidence_search`` / ``evidence_read`` 按需加载
 （deferred），两臂一致。B 臂的子代理 Trace 同样写入该库，便于复盘调查
 过程。**主 Run 的 Run Budget 关闭**（两臂一致，评测关注自然完成下的成本，
@@ -29,7 +32,7 @@ from app.agent.budget import RunBudgetConfig
 from app.agent.events import AgentEvent, InMemoryEventHandler
 from app.agent.result import AgentResult
 from app.agent.runtime import AgentRuntime
-from app.application import DEFAULT_SYSTEM_PROMPT
+from app.application import BASE_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT
 from app.context import ContextManager, ContextSettings
 from app.evidence import (
     EvidenceRecorder,
@@ -69,7 +72,10 @@ class HarnessConfig:
     provider: str
     model: str
     max_steps: int = 40
-    max_tool_rounds: int = 40
+    # 收口余量：max_tool_rounds < max_steps 时，工具轮先到上限并触发一次
+    # 「只作答、不带工具」的强制收口（两臂一致），避免撞步数硬停后没有
+    # 最终作答、正确率被记 0。
+    max_tool_rounds: int = 35
     subagent_settings: SubagentSettings | None = None
 
 
@@ -152,12 +158,17 @@ async def run_task(
         parallel_tool_names = frozenset({SUBAGENT_TOOL_NAME})
         run_finalizers = (runner.release_run,)
 
+    # A 臂 = 「没有子代理的产品」反事实：工具集与 B 臂一致（含 grep /
+    # glob），提示词不带委派指引；B 臂 = 现行产品装配。
+    system_prompt = (
+        DEFAULT_SYSTEM_PROMPT if arm == DELEGATE_ARM else BASE_SYSTEM_PROMPT
+    )
     runtime = AgentRuntime(
         registry,
         tool_registry,
         provider=config.provider,
         model=config.model,
-        system_prompt=DEFAULT_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         tool_executor=tool_executor,
         context_manager=ContextManager(
             context_settings=ContextSettings(_env_file=None)

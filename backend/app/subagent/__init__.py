@@ -1,5 +1,7 @@
 """Sub-Agent V1：主代理把有边界的调查任务委派给隔离的子代理。"""
 
+from app.tools.builtin.explore import GlobTool, GrepTool
+
 from .capabilities import (
     CAPABILITY_CATALOG,
     CapabilityError,
@@ -13,8 +15,6 @@ from .explore_tools import (
     GitLogTool,
     GitShowTool,
     GitStatusTool,
-    GlobTool,
-    GrepTool,
 )
 from .findings import (
     FINDING_LIMITS,
@@ -27,6 +27,7 @@ from .findings import (
 from .redaction import (
     is_sensitive_path,
     redact_secrets,
+    sensitive_exclusion,
     sensitive_rejection_text,
 )
 from .runner import SUBAGENT_BUDGET_MESSAGES, SubAgentOutcome, SubAgentRunner
@@ -108,6 +109,7 @@ __all__ = [
     "read_grant_prefixes",
     "redact_secrets",
     "render_task_brief",
+    "sensitive_exclusion",
     "sensitive_rejection_text",
     "wrap_untrusted",
 ]

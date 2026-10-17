@@ -1,5 +1,6 @@
-"""任务单范围与授权前缀的执行层路径校验（read / list / grep / glob / git 共用）。
+"""工作区路径作用域校验：主 Agent 内置文件/探索工具与子代理工具共用。
 
+``prefixes=None`` 表示整个工作区；给出前缀集合时只放行前缀内的路径。
 所有校验在本地确定性完成：绝对路径、``..`` 与符号链接逃逸一律拒绝；前缀
 比对基于规范化后的真实路径（``Path.resolve``），不依赖模型的文字约定。
 """
@@ -8,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.tools.builtin._workspace import resolve_workspace_path
+from ._workspace import resolve_workspace_path
 
 # 越权拒绝的统一标记：子循环观察者据此累计 scope_violation；同一任务
 # 累计达上限（见 MAX_SCOPE_VIOLATIONS）直接终止并记 failed。

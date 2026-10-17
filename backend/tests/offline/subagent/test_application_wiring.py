@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from pydantic import SecretStr
 
 from app.agent.events import AgentEventType, InMemoryEventHandler
-from app.application import Application
+from app.application import BASE_SYSTEM_PROMPT, Application
 from app.memory import MemoryMaintenanceConfig, MemoryReflectionConfig
 from app.models.config import ModelSettings, ProviderConfig
 from app.models.registry import ModelAdapterRegistry
@@ -174,5 +175,26 @@ async def test_application_wires_deferred_subagent_delegation(
         types = [event.type for event in events.events]
         assert AgentEventType.SUBAGENT_STARTED in types
         assert AgentEventType.SUBAGENT_COMPLETED in types
+    finally:
+        await app.close()
+
+
+async def test_application_runtime_prompt_drops_delegation_when_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SUBAGENT_ENABLED", "false")
+    config = ProviderConfig(
+        provider="main",
+        model="main-model",
+        api_key=SecretStr("offline-test-key"),
+        api_style=ApiStyle.CHAT_COMPLETIONS,
+    )
+    adapter = FakeModelAdapter(config, [])
+    app = _application(tmp_path, adapter)
+    await app.start()
+    try:
+        assert app.subagent_runner is None
+        assert app.runtime._system_prompt == BASE_SYSTEM_PROMPT
     finally:
         await app.close()
