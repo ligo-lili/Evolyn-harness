@@ -68,6 +68,10 @@ allowed-tools，只能收窄，不能扩大。
 - 单次读取上限 **120k 字符**（超出截断并标注，脱敏先于截断）；grep/glob/
   git 结果数量与字符数均有上限；`git_log` 默认 20 条、`git_show` 的 `rev`
   必须是 HEAD 祖先链上的提交。
+- 输出截断口径：所有工具输出经共享执行层后，模型实际可见部分按
+  `MAX_TOOL_OUTPUT_CHARS`（20k 字符）硬截断并标记 `output_truncated`
+  （与主 Agent 同一口径）；120k 是受限包装与 Evidence 归档的上限
+  （证据保留截断前全文）。
 - 敏感路径（凭证 / 私钥 / `.env` 等）不在可读范围：读取被拒，扫描结果隐去，
   git 历史按文件片段过滤（见「安全模型」）。
 - git 只读：显式 argv、最小环境变量、`GIT_TERMINAL_PROMPT=0`、命令超时；
@@ -140,8 +144,10 @@ tier 给出一组初始预算；**settings 里的对应字段是部署级上限*
   Run 结束时清理计数。
 - 并发：一轮响应中的多个 `subagent_run` 并发执行，上限 3（可配置）；每个
   父 Run 的委派调用上限默认 4 次。
-- 墙钟超时由 `asyncio.timeout` 强制；外层工具超时 = 子墙钟 + 30s 缓冲。
-  超时 / 预算耗尽 / 崩溃时，已入账的**已验证发现不丢失**（随 partial 返回）。
+- 墙钟超时由内层 `asyncio.timeout` 按 tier 强制（60 / 240 / 600 秒）；
+  `subagent_run` 工具定义的外层超时 = 部署级 `SUBAGENT_WALL_CLOCK_SECONDS`
+  + 30s 缓冲，仅作兜底（正常路径由内层先触发）。超时 / 预算耗尽 /
+  崩溃时，已入账的**已验证发现不丢失**（随 partial 返回）。
 
 ## 安全模型
 
@@ -229,11 +235,30 @@ Memory Policy 消息不转发。父上下文没有记忆时如实注入空并记
 - **Trace / Evidence 保留策略（v3 §8）未实现**：子代理输出在入源头已做
   密钥脱敏（工具结果、发现摘录、claim），但没有「短期保留 + 到期自动删除」
   与「只存哈希」机制，Trace / Evidence 按既有机制保存；这是后续迭代项。
+- **behavior 独立复核（v3 §6.3）未实现**：behavior 结论只过路径 / 行号 /
+  符号校验，没有独立模型的 supported / weak / unsupported 判定；v3 §9 的
+  「证据支持率」暂无法计算，高影响结论依赖主 Agent 复读核验。
+- **去重与协调（v3 §4）未实现**：Harness 不记录同一父任务下已扫描的文件
+  与 grep 查询，重叠范围既不拒绝启动也不附「已覆盖」提示；续跑只有句柄
+  与任务说明约束（「只调查未覆盖范围」），执行层不校验是否重复扫描。
+- **全局执行时间上限（v3 §5.2）未实现**：只落地父 Run token 累计与并发
+  上限；且累计预算在委派启动时检查，同一轮并发委派合计可能超过
+  `SUBAGENT_RUN_TOKEN_BUDGET`（最坏 ≈ 并发数 × tier 预算）。
+- **工具五元属性（v3 §3.2）未落地为声明字段**：readOnly / allowedScopes /
+  networkAccess / executionMode / concurrencySafe 的语义分别由受限包装、
+  能力目录、模式白名单与超时配置承担；`ToolDefinition` 不含这五个字段。
+- **Trace 字段缺口（v3 §8）**：因复核未实现，「每条发现的复核结果」缺失；
+  「父任务是否采纳子发现」无追踪（保留策略见第一条）。
 - 无更深嵌套（子代理不能再生子代理）；无独立 Checkpoint / 恢复；
 - 能力目录不含写操作与 Shell（`write_repo` / `run_shell` 属后续版本）；
   不接入 MCP 动态工具；
 - 子代理与主 Agent 使用同一 provider / model；
-- Go/No-go 评测（v3 §9）需要真实模型跑批，待预算确认后执行。
+- Go/No-go 评测（v3 §9）已跑批：2026-10-16 完成两轮真实模型 A/B 评测
+  （`backend/tests/eval/subagent/reports/`），均为 **No-go**（两轮主上下文
+  均未下降，并分别叠加安全子集缺关键结论 / 成本超限，详见报告）；强委派
+  变体报告（`report_subagent_20261016_B2strong.*`）的运行入口未入库，
+  当前 `run_live.py` 无法复现该轮；按 v3 §10 的后续处置（停止投入 /
+  回头改委派触发规则）尚未记录。
 
 ## 配置
 
