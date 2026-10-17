@@ -2,12 +2,13 @@
 
 对应《只读探索子 Agent 设计方案 v3》的阶段 0：先评测后主线。这里回答三个
 问题——委派是否真的降低主 Agent 上下文占用、正确率（尤其安全相关）是否
-可接受、总成本是否在门槛内。**三项必须同时满足才算 Go**。
+可接受、总成本是否在门槛内。**三项必须同时满足才算 Go**（按套件分别判定，
+见下）。
 
 ```text
 subagent/
-├── tasks.py       20 个真实代码探索任务 + 标准答案（关键结论）
-├── fixtures.py    夹具仓库 shop-auth-sandbox（确定性生成，29 个文件）
+├── tasks.py       29 个真实代码探索任务 + 标准答案（core 20 + large 9）
+├── fixtures.py    夹具仓库 shop-auth-sandbox（确定性生成，95 个文件）
 ├── harness.py     A（直接探索）/ B（现行 V1 委派）两臂装配与运行
 ├── metrics.py     五维指标采集
 ├── reporting.py   联合判定（Go/No-go）与报告渲染
@@ -16,6 +17,17 @@ subagent/
 └── reports/       跑批产出的报告（.md + .json）
 ```
 
+## 双套件（预登记）
+
+- **core（20 个）**：v3 §9 的基础覆盖面（函数定位、跨文件调用链、配置追踪、
+  异常处理、测试覆盖、跨模块依赖、安全子集），作为对照面；
+- **large（9 个）**：大范围盘点 / 负向证明 / 跨模块链，任务形态看起来就
+  需要大面积检索，是委派机制的设计工作区间。
+
+两套件**分别跑批、分别归档**（`--suite core` / `--suite large`），评分口径
+与门槛数字不随跑批结果调整；结论按套件分别陈述（避免「全套件均值」把两种
+工作区间混在一起）。
+
 ## 两臂定义
 
 - **A 臂（direct）**：主 Agent 直接探索，不注册委派工具，基线。
@@ -23,8 +35,10 @@ subagent/
   （与 `app/application.py` 一致），主 Agent 自行决定是否委派。
 
 两臂共用同一装配：系统提示词、步数上限、只读工具集（read_file /
-list_files / get_current_time）、关闭 Run Budget。唯一差异是 B 臂多一个
-委派工具，因此对比的是「有无委派能力」。
+list_files / get_current_time）、Evidence 链路（工具输出与子代理发现原文
+落 `root/eval.db`，`evidence_search` / `evidence_read` 按需加载）、关闭
+Run Budget。唯一差异是 B 臂多一个委派工具，因此对比的是「有无委派能力」。
+B 臂的子代理 Trace 同样写入 `eval.db`，用于复盘调查过程。
 
 ## 指标口径（报告不得换口径）
 
@@ -65,8 +79,11 @@ cd backend
 .venv/bin/python -m tests.eval.subagent.run_live --arm both \
     --task T01-locate-validate-session --task T18-admin-authorization-gap
 
-# 全量跑批（20 任务 × 两臂；波动建议 --runs 3）
-.venv/bin/python -m tests.eval.subagent.run_live --arm both --runs 3 \
+# 双套件分别跑批（各 2 条命令；波动建议 --runs 3）
+.venv/bin/python -m tests.eval.subagent.run_live --arm both --suite core --runs 3 \
+    --provider deepseek --model deepseek-v4-flash \
+    --price-input 0.27 --price-output 1.10
+.venv/bin/python -m tests.eval.subagent.run_live --arm both --suite large --runs 3 \
     --provider deepseek --model deepseek-v4-flash \
     --price-input 0.27 --price-output 1.10
 ```

@@ -34,6 +34,7 @@ def _args(tmp_path: Path) -> argparse.Namespace:
         arm="both",
         task=[_TASK_ID],
         category=None,
+        suite=None,
         runs=1,
         provider=FAKE_PROVIDER,
         model=FAKE_MODEL,

@@ -1,14 +1,16 @@
 """夹具仓库：shop-auth-sandbox（确定性、自包含、无外部依赖）。
 
-仓库服务于 20 个评测任务：函数定位、跨文件调用链、配置追踪、异常处理、
-测试覆盖、跨模块依赖，以及安全子集（认证 / 权限 / 数据隔离）。
+仓库服务于核心 20 个评测任务（函数定位、跨文件调用链、配置追踪、异常处理、
+测试覆盖、跨模块依赖 + 安全子集）与「大范围探索」扩展任务（全仓盘点、
+负向证明、跨模块链；见 tasks.py 的 large suite）。
 
 设计约束：
 
 - 纯文本落地，不执行；代码只要求结构真实（导入关系、调用关系、配置读取）；
 - 每个任务的标准答案都能在文件内容里精确核对（tasks.py 的常见疑问）；
-- 有意保留的「缺口」（权限缺失、会话绕过、数据隔离缺失、未使用配置）
-  是安全任务要发现的确定事实，修改夹具内容时必须同步核对任务答案。
+- 有意保留的「缺口」（权限缺失、会话绕过、数据隔离缺失、未使用配置、
+  Deprecated 无调用方函数、未读开关、文档中从未读取的变量）是任务要发现的
+  确定事实，修改夹具内容时必须同步核对任务答案。
 """
 
 from __future__ import annotations
@@ -20,14 +22,18 @@ FIXTURE_NAME = "shop-auth-sandbox"
 FIXTURE_FILES: dict[str, str] = {
     "README.md": '''# shop-auth-sandbox
 
-一个用于本地探索的最小认证服务夹具仓库。
+一个用于本地探索的认证服务夹具仓库（附电商后台模块，供大范围检索任务使用）。
 
 - `src/api/`：路由装配、请求中间件与错误映射
 - `src/auth/`：登录、会话、令牌与权限
-- `src/config/`：集中配置与环境变量读取
+- `src/config/`：集中配置、功能开关与限额
 - `src/services/`：用户与审计业务
 - `src/storage/`：持久化访问
 - `src/core/`：基础异常与日志
+- `src/modules/`：电商业务模块（结算、退款、订单等）
+- `src/integrations/`：支付、税务、通知等外部适配
+- `src/legacy/`：迁移中的历史代码（勿新增引用）
+- `docs/`：环境变量参考与运维文档
 - `tests/`：pytest 测试
 
 入口装配：`src/api/app.py` 的 `dispatch()`。
@@ -727,6 +733,582 @@ def test_user_can_read() -> None:
     assert check_permission("user", "read")
 ''',
 }
+
+
+# ---------------------------------------------------------------------------
+# 大仓库扩展包（大范围探索任务专用）
+#
+# 在最小认证服务之外再挂一个「模块化电商后台」：12 个业务模块、外部集成
+# 适配、legacy 遗留层、文档与测试，让「全仓检索 / 盘点 / 负向证明」类任务
+# 有真实的规模与噪音。确定性约束（tests/test_fixtures.py 有对应断言）：
+#
+# - 「未使用」事实在全仓库唯一：Deprecated 且无调用方的 4 个 legacy 函数、
+#   从未被读取的开关 ENABLE_LEGACY_EXPORT、只出现在文档里的 2 个环境变量；
+# - 导入期连接（模块顶层 connect）只出现在 3 个集成适配文件；
+# - 模块测试只覆盖部分模块（覆盖清单见 tasks.py 的 L08）。
+# ---------------------------------------------------------------------------
+
+_GENERATED_STORE_MODULES: tuple[tuple[str, str, str, str, str], ...] = (
+    # (模块名, 中文名, 处理函数, 服务函数, 说明)：写入型模板。
+    ("accounts", "账户", "handle_accounts_update", "update_account", "更新账户资料"),
+    ("cart", "购物车", "handle_cart_add", "add_to_cart", "把商品加入购物车"),
+    ("inventory", "库存", "handle_inventory_reserve", "reserve_stock", "预占库存"),
+    ("promotions", "促销", "handle_promotions_apply", "apply_promotion", "应用促销码"),
+)
+
+_GENERATED_READ_MODULES: tuple[tuple[str, str, str, str, str], ...] = (
+    # (模块名, 中文名, 处理函数, 服务函数, 说明)：读取型模板。
+    (
+        "catalog", "商品目录", "handle_catalog_list",
+        "list_catalog_items", "列出商品目录",
+    ),
+    ("orders", "订单", "handle_orders_list", "list_user_orders", "列出用户订单"),
+    ("shipping", "配送", "handle_shipping_quote", "quote_shipping", "计算配送费用"),
+)
+
+_GENERATED_SERVICE_STORE = '''"""%(zh)s模块业务逻辑。"""
+
+from src.core.errors import ValidationError
+
+_RECORDS: dict[str, dict] = {}
+
+
+def %(fn)s(payload: dict) -> tuple[int, dict]:
+    """%(desc)s。"""
+
+    key = str(payload.get("id", "")).strip()
+    if not key:
+        raise ValidationError("id is required")
+    _RECORDS[key] = payload
+    return 200, {"id": key, "saved": True}
+'''
+
+_GENERATED_SERVICE_READ = '''"""%(zh)s模块业务逻辑。"""
+
+_RECORDS: dict[str, dict] = {}
+
+
+def %(fn)s(payload: dict) -> tuple[int, dict]:
+    """%(desc)s。"""
+
+    items = sorted(_RECORDS.values(), key=lambda item: str(item.get("id", "")))
+    return 200, {"items": items[:50]}
+'''
+
+_GENERATED_HANDLER = '''"""%(zh)s模块请求处理函数。"""
+
+from src.api.errors import wrap_domain_errors
+from src.modules.%(name)s.service import %(fn)s
+
+
+@wrap_domain_errors
+def %(handler)s(request):
+    """%(desc)s。"""
+
+    return %(fn)s(request.body)
+'''
+
+_GENERATED_MODULE_INIT = '''"""%(zh)s模块。"""
+
+from src.modules.%(name)s.handler import %(handler)s
+
+__all__ = ["%(handler)s"]
+'''
+
+_CHECKOUT_SERVICE = '''"""结算模块业务逻辑：算税与扣款编排。"""
+
+from src.config.feature_flags import flag_enabled
+from src.config.limits import MAX_ORDER_ITEMS
+from src.core.errors import ValidationError
+from src.integrations.payments import charge_card
+from src.integrations.tax import calculate_tax_for_order
+
+
+def confirm_order(payload: dict) -> tuple[int, dict]:
+    """校验订单并依次算税、扣款；新结算开关关闭时直接拒绝。"""
+
+    if not flag_enabled("ENABLE_NEW_CHECKOUT"):
+        return 503, {"error": "checkout disabled"}
+    items = payload.get("items", [])
+    if not items or len(items) > MAX_ORDER_ITEMS:
+        raise ValidationError("invalid item count")
+    amount_cents = int(payload.get("amount_cents", 0))
+    tax_cents = calculate_tax_for_order(amount_cents)
+    receipt = charge_card(
+        str(payload.get("order_id", "")),
+        amount_cents + tax_cents,
+    )
+    return 200, {"receipt": receipt, "tax_cents": tax_cents}
+'''
+
+_REFUNDS_SERVICE = '''"""退款模块业务逻辑。"""
+
+from src.config.limits import MAX_REFUND_DAYS
+from src.core.errors import NotFoundError, ValidationError
+
+_ORDERS: dict[str, dict] = {}
+
+
+def request_refund(payload: dict) -> tuple[int, dict]:
+    """校验订单存在且未超期，然后登记退款。"""
+
+    order_id = str(payload.get("order_id", ""))
+    if order_id not in _ORDERS:
+        raise NotFoundError(f"order {order_id} not found")
+    days = int(payload.get("days_since_purchase", 0))
+    if days > MAX_REFUND_DAYS:
+        raise ValidationError("refund window expired")
+    return 200, {"order_id": order_id, "status": "refund_requested"}
+'''
+
+_REVIEWS_SERVICE = '''"""评价模块业务逻辑。"""
+
+from src.config.feature_flags import flag_enabled
+from src.core.errors import ValidationError
+
+_REVIEWS: dict[str, dict] = {}
+
+
+def publish_review(payload: dict) -> tuple[int, dict]:
+    """发布评价；V2 开关关闭时拒绝带图评价。"""
+
+    if payload.get("has_image") and not flag_enabled("ENABLE_REVIEWS_V2"):
+        raise ValidationError("images disabled")
+    _REVIEWS[str(payload.get("id", ""))] = payload
+    return 200, {"saved": True}
+'''
+
+_NOTIFICATIONS_SERVICE = '''"""通知模块业务逻辑。"""
+
+from src.config.feature_flags import flag_enabled
+from src.integrations import email, sms
+
+
+def dispatch_notification(payload: dict) -> tuple[int, dict]:
+    """按渠道派发通知；聊天通知由开关控制。"""
+
+    channel = str(payload.get("channel", "email"))
+    to = str(payload.get("to", ""))
+    text = str(payload.get("text", ""))
+    if channel == "email":
+        email.send(to, text)
+    elif channel == "sms":
+        sms.send(to, text)
+    elif channel != "chat" or not flag_enabled("ENABLE_SUPPORT_CHAT"):
+        raise ValueError(f"unknown channel: {channel}")
+    return 200, {"channel": channel, "sent": True}
+'''
+
+_AUDIT_SERVICE = '''"""审计模块业务逻辑。"""
+
+from src.legacy.audit_v1 import record_audit_v1
+
+
+def list_audit_events(payload: dict) -> tuple[int, dict]:
+    """列出审计事件；旁路写入仍走 v1 通道（迁移中）。"""
+
+    record_audit_v1({"action": "audit_list", "actor": payload.get("actor", "")})
+    return 200, {"events": []}
+'''
+
+_HAND_WRITTEN_MODULES: tuple[tuple[str, str, str, str, str, str], ...] = (
+    # (模块名, 中文名, 处理函数, 服务函数, 说明, 服务源码)
+    (
+        "checkout", "结算", "handle_checkout_confirm", "confirm_order",
+        "确认订单", _CHECKOUT_SERVICE,
+    ),
+    (
+        "refunds", "退款", "handle_refunds_request", "request_refund",
+        "登记退款", _REFUNDS_SERVICE,
+    ),
+    (
+        "reviews", "评价", "handle_reviews_publish", "publish_review",
+        "发布商品评价", _REVIEWS_SERVICE,
+    ),
+    (
+        "notifications", "通知", "handle_notifications_send",
+        "dispatch_notification", "派发用户通知", _NOTIFICATIONS_SERVICE,
+    ),
+    (
+        "audit", "审计", "handle_audit_list", "list_audit_events",
+        "列出审计事件", _AUDIT_SERVICE,
+    ),
+)
+
+_INTEGRATION_FILES: dict[str, str] = {
+    "src/integrations/payments.py": '''"""支付渠道适配。"""
+
+import os
+
+from src.legacy.config_v1 import load_legacy_config
+
+_API_KEY = os.environ.get("PAYMENTS_API_KEY", "")
+_LEGACY = load_legacy_config()
+
+
+def charge_card(order_id: str, amount_cents: int) -> dict:
+    """向支付网关发起扣款（夹具不真正发请求）。"""
+
+    return {
+        "order_id": order_id,
+        "amount_cents": amount_cents,
+        "gateway": _LEGACY.get("base_url", "sandbox"),
+        "has_key": bool(_API_KEY),
+    }
+''',
+    "src/integrations/tax.py": '''"""税费计算适配。"""
+
+import os
+
+from src.config.feature_flags import flag_enabled
+
+_TAX_RATE_PERCENT = float(os.environ.get("TAX_RATE_PERCENT", "0") or 0)
+
+
+def calculate_tax_for_order(amount_cents: int) -> int:
+    """按配置税率计算税额；V2 开关启用时使用四舍五入。"""
+
+    if amount_cents <= 0:
+        return 0
+    raw = amount_cents * _TAX_RATE_PERCENT / 100
+    if flag_enabled("ENABLE_TAX_V2"):
+        return round(raw)
+    return int(raw)
+''',
+    "src/integrations/email.py": '''"""邮件通道适配。"""
+
+import os
+
+_RELAY_URL = os.environ.get("EMAIL_RELAY_URL", "")
+
+
+def send(to: str, text: str) -> dict:
+    """发送邮件（夹具不真正发请求）。"""
+
+    return {"to": to, "chars": len(text), "relay": bool(_RELAY_URL)}
+''',
+    "src/integrations/sms.py": '''"""短信通道适配。"""
+
+import os
+
+_PROVIDER_URL = os.environ.get("SMS_PROVIDER_URL", "")
+
+
+def send(to: str, text: str) -> dict:
+    """发送短信（夹具不真正发请求）。"""
+
+    return {"to": to, "chars": len(text), "provider": bool(_PROVIDER_URL)}
+''',
+    "src/integrations/analytics.py": '''"""分析事件写入（导入期建立连接）。"""
+
+import os
+
+from src.storage.db import connect
+
+_CONNECTION = connect("analytics.db")
+_WRITE_KEY = os.environ.get("ANALYTICS_WRITE_KEY", "")
+
+
+def track(name: str, payload: dict) -> None:
+    """记录分析事件。"""
+
+    _CONNECTION.execute("SELECT 1")
+''',
+    "src/integrations/storage.py": '''"""对象存储适配（导入期建立连接）。"""
+
+from src.storage.db import connect
+
+_CONNECTION = connect("objects.db")
+
+
+def put_object(bucket: str, key: str) -> str:
+    """登记对象路径。"""
+
+    _CONNECTION.execute("SELECT 1")
+    return f"{bucket}/{key}"
+''',
+    "src/integrations/search.py": '''"""搜索索引适配（导入期建立连接）。"""
+
+from src.storage.db import connect
+
+_CONNECTION = connect("search_index.db")
+
+
+def index_document(doc_id: str, text: str) -> None:
+    """写入索引；重建由离线任务负责。"""
+
+    _CONNECTION.execute("SELECT 1")
+''',
+    "src/integrations/shipping_carrier.py": '''"""承运商适配。"""
+
+import os
+
+_CARRIER_CODE = os.environ.get("SHIPPING_CARRIER_CODE", "demo")
+
+
+def quote_shipping_weight(weight_grams: int) -> int:
+    """按重量估算运费（分）。"""
+
+    return max(500, weight_grams // 10)
+''',
+}
+
+_LEGACY_FILES: dict[str, str] = {
+    "src/legacy/orders_v1.py": '''"""旧版订单金额计算（v1）。"""
+
+
+def calculate_total_v1(items: list[dict]) -> int:
+    """Deprecated：旧版合计计算，已被结算模块取代，没有调用方。"""
+
+    total = 0
+    for item in items:
+        total += int(item.get("price_cents", 0)) * int(item.get("qty", 1))
+    return total
+''',
+    "src/legacy/permissions_v1.py": '''"""旧版权限检查（v1）。"""
+
+
+def check_permission_v1(role: str, action: str) -> bool:
+    """Deprecated：旧版权限矩阵，已被 src/auth/permissions.py 取代。"""
+
+    return role == "admin" or action == "read"
+''',
+    "src/legacy/pricing_v1.py": '''"""旧版折扣计算（v1）。"""
+
+
+def apply_discount_v1(amount_cents: int, percent: float) -> int:
+    """Deprecated：旧版折扣逻辑没有调用方，等待删除。"""
+
+    return int(amount_cents * (1 - percent / 100))
+''',
+    "src/legacy/tokens_v1.py": '''"""旧版令牌（v1）。"""
+
+import os
+
+
+def issue_token_v1(user_id: str) -> str:
+    """Deprecated：旧版静态前缀令牌没有调用方。"""
+
+    prefix = os.environ.get("LEGACY_TOKEN_PREFIX", "")
+    return f"v1.{user_id}.{prefix}"
+''',
+    "src/legacy/audit_v1.py": '''"""旧版审计写入（v1）。"""
+
+_EVENTS: list[dict] = []
+
+
+def record_audit_v1(event: dict) -> None:
+    """Deprecated：仍被审计模块暂时复用，迁移完成后删除。"""
+
+    _EVENTS.append(event)
+''',
+    "src/legacy/config_v1.py": '''"""旧版配置加载（v1）。"""
+
+import os
+
+
+def load_legacy_config() -> dict:
+    """Deprecated：仍被支付适配复用；从环境变量读取旧配置。"""
+
+    return {
+        "base_url": os.environ.get("LEGACY_BASE_URL", ""),
+        "retries": int(os.environ.get("LEGACY_RETRIES", "0") or 0),
+    }
+''',
+}
+
+_EXTRA_CONFIG_FILES: dict[str, str] = {
+    "src/config/feature_flags.py": '''"""功能开关：从环境变量按名称读取。"""
+
+import os
+
+_FLAGS = (
+    "ENABLE_NEW_CHECKOUT",
+    "ENABLE_TAX_V2",
+    "ENABLE_REVIEWS_V2",
+    "ENABLE_SUPPORT_CHAT",
+    "ENABLE_LEGACY_EXPORT",
+)
+
+
+def flag_enabled(name: str) -> bool:
+    """开关仅在显式开启时生效（默认关闭）。"""
+
+    return os.environ.get(f"FLAG_{name}", "0") == "1"
+''',
+    "src/config/limits.py": '''"""业务限额。"""
+
+MAX_ORDER_ITEMS = 50
+MAX_REFUND_DAYS = 30
+RATE_LIMIT_PER_MINUTE = 120
+''',
+}
+
+_DOC_FILES: dict[str, str] = {
+    "docs/env_reference.md": '''# 环境变量参考
+
+以下变量由部署环境注入（本地开发可省略，走默认值）。
+
+| 变量 | 说明 |
+| --- | --- |
+| AUTH_TOKEN_SECRET | 令牌签名密钥 |
+| AUTH_SESSION_TTL | 会话有效期（秒） |
+| AUTH_MAX_LOGIN_ATTEMPTS | 登录失败上限 |
+| AUTH_LOCKOUT_WINDOW | 锁定时窗（秒） |
+| AUTH_AUDIT_ENABLED | 审计通道开关 |
+| PAYMENTS_API_KEY | 支付网关密钥 |
+| TAX_RATE_PERCENT | 税率（百分比） |
+| EMAIL_RELAY_URL | 邮件中继地址 |
+| SMS_PROVIDER_URL | 短信通道地址 |
+| ANALYTICS_WRITE_KEY | 分析写入密钥 |
+| SHIPPING_CARRIER_CODE | 承运商代码 |
+| LEGACY_BASE_URL | 旧版配置地址（迁移中） |
+| LEGACY_RETRIES | 旧版重试次数（迁移中） |
+| VOICE_ORDERS_ENABLED | 语音下单开关（规划中，未接入） |
+| LEGACY_EXPORT_BUCKET | 旧导出桶（已停用，未接入） |
+''',
+    "docs/architecture.md": '''# 架构概览
+
+- `src/api/`：路由装配与请求中间件（最小实现）。
+- `src/auth/`：认证、会话与权限。
+- `src/config/`：集中配置、功能开关与限额。
+- `src/services/`：用户与审计服务。
+- `src/storage/`：SQLite 访问。
+- `src/modules/`：电商业务模块（结算、订单、库存等）。
+- `src/integrations/`：支付、税务、通知等外部适配。
+- `src/legacy/`：迁移中的历史代码，不允许新增引用。
+
+业务模块统一由 `handler.py`（请求边界）与 `service.py`（业务逻辑）组成；
+外部依赖一律经 `integrations` 适配层。
+''',
+    "docs/runbook.md": '''# 运维手册（节选）
+
+- 发布前运行 `pytest tests/`；
+- 支付与税务适配依赖环境变量，见 `env_reference.md`；
+- `src/legacy/` 在迁移完成前不要删除；
+- 搜索索引由离线任务重建（见 search 适配）。
+''',
+    "docs/onboarding.md": '''# 新人上手
+
+1. 阅读 `architecture.md` 了解目录结构；
+2. 本地运行 `pytest tests/`；
+3. 新代码不得直接引用 `src/legacy/`；
+4. 业务模块沿用 `handler.py` + `service.py` 双层结构。
+''',
+    "docs/changelog.md": '''# 变更记录
+
+## 2026-09
+
+- 结算确认链路接入税务与支付适配；
+- 退款模块加入超期校验；
+- 旧导出通道停用（相关配置见 `env_reference.md`）。
+
+## 2026-08
+
+- 权限 v1 标记弃用，等待迁移到 `src/auth/`。
+''',
+}
+
+_GENERATED_TEST_FILES: dict[str, str] = {
+    "tests/test_accounts.py": '''"""账户模块测试。"""
+
+from src.modules.accounts.service import update_account
+
+
+def test_update_account_is_importable() -> None:
+    assert callable(update_account)
+''',
+    "tests/test_catalog.py": '''"""商品目录模块测试。"""
+
+from src.modules.catalog.service import list_catalog_items
+
+
+def test_list_catalog_is_importable() -> None:
+    assert callable(list_catalog_items)
+''',
+    "tests/test_checkout.py": '''"""结算模块测试。"""
+
+from src.modules.checkout.service import confirm_order
+
+
+def test_confirm_order_is_importable() -> None:
+    assert callable(confirm_order)
+''',
+    "tests/test_orders.py": '''"""订单模块测试。"""
+
+from src.modules.orders.service import list_user_orders
+
+
+def test_list_orders_is_importable() -> None:
+    assert callable(list_user_orders)
+''',
+    "tests/test_refunds.py": '''"""退款模块测试。"""
+
+from src.modules.refunds.service import request_refund
+
+
+def test_request_refund_is_importable() -> None:
+    assert callable(request_refund)
+''',
+    "tests/test_tax.py": '''"""税费适配测试。"""
+
+from src.integrations.tax import calculate_tax_for_order
+
+
+def test_tax_is_importable() -> None:
+    assert callable(calculate_tax_for_order)
+''',
+}
+
+
+def _module_pack(
+    name: str,
+    zh: str,
+    handler: str,
+    fn: str,
+    desc: str,
+    *,
+    store: bool = True,
+    service: str | None = None,
+) -> dict[str, str]:
+    """一个模块的三个文件：__init__ / handler / service。"""
+
+    if service is None:
+        template = _GENERATED_SERVICE_STORE if store else _GENERATED_SERVICE_READ
+        service = template % {"zh": zh, "fn": fn, "desc": desc}
+    values = {"name": name, "zh": zh, "handler": handler, "fn": fn, "desc": desc}
+    return {
+        f"src/modules/{name}/__init__.py": _GENERATED_MODULE_INIT % values,
+        f"src/modules/{name}/handler.py": _GENERATED_HANDLER % values,
+        f"src/modules/{name}/service.py": service,
+    }
+
+
+def _generated_files() -> dict[str, str]:
+    """大仓库扩展包的完整文件集合（确定性：无随机、无外部读取）。"""
+
+    files: dict[str, str] = {
+        "src/modules/__init__.py": '"""业务模块包（按领域拆分）。"""\n',
+        "src/integrations/__init__.py": '"""外部集成适配包。"""\n',
+        "src/legacy/__init__.py": '"""历史遗留代码（迁移中，勿新增引用）。"""\n',
+    }
+    for name, zh, handler, fn, desc in _GENERATED_STORE_MODULES:
+        files.update(_module_pack(name, zh, handler, fn, desc, store=True))
+    for name, zh, handler, fn, desc in _GENERATED_READ_MODULES:
+        files.update(_module_pack(name, zh, handler, fn, desc, store=False))
+    for name, zh, handler, fn, desc, service in _HAND_WRITTEN_MODULES:
+        files.update(
+            _module_pack(name, zh, handler, fn, desc, service=service)
+        )
+    files.update(_INTEGRATION_FILES)
+    files.update(_LEGACY_FILES)
+    files.update(_EXTRA_CONFIG_FILES)
+    files.update(_DOC_FILES)
+    files.update(_GENERATED_TEST_FILES)
+    return files
+
+
+FIXTURE_FILES.update(_generated_files())
 
 
 def fixture_paths() -> tuple[str, ...]:

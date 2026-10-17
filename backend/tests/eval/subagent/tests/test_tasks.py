@@ -18,14 +18,29 @@ def test_task_set_is_valid() -> None:
 
 
 def test_task_count_and_unique_ids() -> None:
-    assert len(TASKS) == 20
+    assert len(TASKS) == 29
     ids = [task.id for task in TASKS]
     assert len(set(ids)) == len(ids)
+    assert sum(1 for task in TASKS if task.suite == "core") == 20
+    assert sum(1 for task in TASKS if task.suite == "large") == 9
 
 
 def test_all_categories_covered() -> None:
     covered = {task.category for task in TASKS}
     assert covered == set(CATEGORIES)
+
+
+def test_large_suite_covers_new_categories() -> None:
+    large = select_tasks(suites=("large",))
+    assert len(large) == 9
+    covered = {task.category for task in large}
+    assert {"repo_audit", "negative_proof"} <= covered
+
+
+def test_select_by_suite() -> None:
+    core = select_tasks(suites=("core",))
+    assert len(core) == 20
+    assert all(task.suite == "core" for task in core)
 
 
 def test_security_subset_has_critical_facts() -> None:

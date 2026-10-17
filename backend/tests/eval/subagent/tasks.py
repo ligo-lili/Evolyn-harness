@@ -1,7 +1,10 @@
-"""阶段 0 评测任务集：20 个真实代码探索任务 + 标准答案。
+"""阶段 0 评测任务集：core suite 20 个真实代码探索任务 + large suite 9 个
+大范围探索任务（全仓盘点 / 负向证明 / 跨模块链）+ 标准答案。
 
-任务分类对应 v3 §9 的覆盖面：函数定位、跨文件调用链、配置追踪、异常处理、
-测试覆盖、跨模块依赖，外加安全子集（认证 / 权限 / 数据隔离）。
+core 任务分类对应 v3 §9 的覆盖面：函数定位、跨文件调用链、配置追踪、异常
+处理、测试覆盖、跨模块依赖，外加安全子集（认证 / 权限 / 数据隔离）。
+large 任务是委派机制的「工作区间」题：任务形态看起来就需要大面积检索，
+用于验证「子代理在上下文压力下是否真有价值」（与 core 对照报告）。
 
 标准答案形式为「关键结论」（KeyFact）：
 
@@ -11,6 +14,9 @@
   （Go/No-go 的门槛口径：关键错误 0 新增）；
 - 字符串匹配是刻意保守的确定性口径：它对「结论缺失」判罚可靠，对「表述
   含混」会有误报，阶段 0 报告同时给出每任务的关键结论明细供人工抽样核对。
+
+预登记：large suite 一经冻结，评分口径与门槛数字不得随跑批结果调整；
+跑批必须 core / large 两套分别报告（见 README「双套件报告」）。
 """
 
 from __future__ import annotations
@@ -26,8 +32,12 @@ CATEGORIES: tuple[str, ...] = (
     "error_handling",
     "test_coverage",
     "module_dependency",
+    "repo_audit",
+    "negative_proof",
     SECURITY_CATEGORY,
 )
+
+SUITES: tuple[str, ...] = ("core", "large")
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +69,7 @@ class EvalTask:
     expected_files: int
     scope_hint: tuple[str, ...]
     key_facts: tuple[KeyFact, ...]
+    suite: str = "core"
 
     @property
     def is_security(self) -> bool:
@@ -737,6 +748,364 @@ TASKS: tuple[EvalTask, ...] = (
             ),
         ),
     ),
+    # ------------------------------------------------------------------
+    # 大范围探索（large suite）：全仓盘点 / 负向证明 / 跨模块链
+    # ------------------------------------------------------------------
+    EvalTask(
+        id="L01-env-reads-audit",
+        suite="large",
+        category="repo_audit",
+        name="环境变量直读盘点",
+        user_input=(
+            "盘点这个仓库：除 src/config/ 目录外，还有哪些文件直接读取"
+            "环境变量（os.environ.get / os.getenv），绕过了集中配置？"
+            "给出这些文件的路径与它们读取的变量名。"
+        ),
+        criteria=(
+            "列出 src/config/ 之外直接读 env 的文件清单（至少含 tokens.py、"
+            "payments.py、tax.py、email.py、sms.py、config_v1.py）与对应的"
+            "变量名。"
+        ),
+        expected_files=12,
+        scope_hint=("src/",),
+        key_facts=(
+            KeyFact(
+                "tokens",
+                "src/auth/tokens.py 直接读取 AUTH_TOKEN_SECRET",
+                (r"tokens\.py", r"AUTH_TOKEN_SECRET"),
+                match="all",
+            ),
+            KeyFact(
+                "payments",
+                "src/integrations/payments.py 直接读取 PAYMENTS_API_KEY",
+                (r"payments\.py", r"PAYMENTS_API_KEY"),
+                match="all",
+            ),
+            KeyFact(
+                "tax",
+                "src/integrations/tax.py 直接读取 TAX_RATE_PERCENT",
+                (r"tax\.py", r"TAX_RATE_PERCENT"),
+                match="all",
+            ),
+            KeyFact(
+                "email",
+                "src/integrations/email.py 直接读取 EMAIL_RELAY_URL",
+                (r"email\.py", r"EMAIL_RELAY_URL"),
+                match="all",
+            ),
+            KeyFact(
+                "legacy",
+                "src/legacy/config_v1.py 直接读取 LEGACY_BASE_URL",
+                (r"config_v1\.py", r"LEGACY_BASE_URL"),
+                match="all",
+            ),
+        ),
+    ),
+    EvalTask(
+        id="L02-deprecated-unused",
+        suite="large",
+        category="negative_proof",
+        name="Deprecated 无调用方函数",
+        user_input=(
+            "在 src/legacy/ 中，哪些函数的文档标注了 Deprecated 且在整个"
+            "仓库（包括 tests/）没有任何调用方？请给出全部函数名与所在文件。"
+        ),
+        criteria=(
+            "给出全部 4 个无调用方的 Deprecated 函数：calculate_total_v1、"
+            "check_permission_v1、apply_discount_v1、issue_token_v1 及所在文件。"
+        ),
+        expected_files=10,
+        scope_hint=("src/", "tests/"),
+        key_facts=(
+            KeyFact(
+                "orders",
+                "calculate_total_v1（src/legacy/orders_v1.py）无调用方",
+                (r"calculate_total_v1",),
+            ),
+            KeyFact(
+                "permissions",
+                "check_permission_v1（src/legacy/permissions_v1.py）无调用方",
+                (r"check_permission_v1",),
+            ),
+            KeyFact(
+                "pricing",
+                "apply_discount_v1（src/legacy/pricing_v1.py）无调用方",
+                (r"apply_discount_v1",),
+            ),
+            KeyFact(
+                "tokens",
+                "issue_token_v1（src/legacy/tokens_v1.py）无调用方",
+                (r"issue_token_v1",),
+            ),
+        ),
+    ),
+    EvalTask(
+        id="L03-unused-flag",
+        suite="large",
+        category="negative_proof",
+        name="未被读取的功能开关",
+        user_input=(
+            "src/config/feature_flags.py 定义了哪些功能开关？其中哪一个"
+            "在整个仓库中从未被任何代码读取（没有任何 flag_enabled 调用）？"
+        ),
+        criteria=(
+            "指出 ENABLE_LEGACY_EXPORT 是唯一从未被读取的开关；最好列出"
+            "全部开关名（ENABLE_NEW_CHECKOUT / ENABLE_TAX_V2 / "
+            "ENABLE_REVIEWS_V2 / ENABLE_SUPPORT_CHAT / ENABLE_LEGACY_EXPORT）。"
+        ),
+        expected_files=4,
+        scope_hint=("src/",),
+        key_facts=(
+            KeyFact(
+                "unused",
+                "ENABLE_LEGACY_EXPORT 从未被读取",
+                (r"ENABLE_LEGACY_EXPORT", r"(从未|没有|未被|未使用|唯一)"),
+                match="all",
+            ),
+        ),
+    ),
+    EvalTask(
+        id="L04-checkout-call-chain",
+        suite="large",
+        category="call_chain",
+        name="结算确认调用链",
+        user_input=(
+            "从 src/modules/checkout/handler.py 的 handle_checkout_confirm "
+            "出发：确认一笔订单时，算税与扣款分别经过哪些文件与函数？"
+            "请给出完整调用链（每个环节的文件与函数名）。"
+        ),
+        criteria=(
+            "链：handle_checkout_confirm → confirm_order（checkout/service.py）"
+            "→ calculate_tax_for_order（integrations/tax.py）与 charge_card"
+            "（integrations/payments.py）→ load_legacy_config"
+            "（legacy/config_v1.py）。"
+        ),
+        expected_files=8,
+        scope_hint=("src/modules/", "src/integrations/", "src/legacy/"),
+        key_facts=(
+            KeyFact(
+                "handler",
+                "入口 handle_checkout_confirm 在 checkout/handler.py",
+                (r"handle_checkout_confirm", r"checkout[/\\]handler\.py"),
+                match="all",
+            ),
+            KeyFact(
+                "service",
+                "confirm_order 在 checkout/service.py",
+                (r"confirm_order", r"checkout[/\\]service\.py"),
+                match="all",
+            ),
+            KeyFact(
+                "tax",
+                "算税经 calculate_tax_for_order（integrations/tax.py）",
+                (r"calculate_tax_for_order", r"tax\.py"),
+                match="all",
+            ),
+            KeyFact(
+                "pay",
+                "扣款经 charge_card（integrations/payments.py）",
+                (r"charge_card", r"payments\.py"),
+                match="all",
+            ),
+            KeyFact(
+                "legacy",
+                "支付适配内加载 legacy 配置（load_legacy_config）",
+                (r"load_legacy_config",),
+            ),
+        ),
+    ),
+    EvalTask(
+        id="L05-import-time-connections",
+        suite="large",
+        category="repo_audit",
+        name="导入期连接盘点",
+        user_input=(
+            "审计 src/integrations/：哪些文件在模块导入时就直接建立了连接"
+            "（模块顶层出现 connect(...)）？给出文件与模块级变量名，并说明"
+            "这种写法的主要风险。"
+        ),
+        criteria=(
+            "列出 analytics.py、storage.py、search.py 三个导入期连接"
+            "（_CONNECTION = connect(...)）并说明副作用/难测试等风险。"
+        ),
+        expected_files=8,
+        scope_hint=("src/integrations/", "src/storage/"),
+        key_facts=(
+            KeyFact(
+                "analytics",
+                "analytics.py 模块级连接",
+                (r"analytics\.py", r"(_CONNECTION|connect)"),
+                match="all",
+            ),
+            KeyFact(
+                "storage",
+                "storage.py 模块级连接",
+                (r"storage\.py", r"(_CONNECTION|connect)"),
+                match="all",
+            ),
+            KeyFact(
+                "search",
+                "search.py 模块级连接",
+                (r"search\.py", r"(_CONNECTION|connect)"),
+                match="all",
+            ),
+            KeyFact(
+                "risk",
+                "风险：导入即产生副作用、难以测试或连接不可控",
+                (r"(导入|import)", r"(副作用|连接|难以|不易|可测试|测试)"),
+                match="all",
+            ),
+        ),
+    ),
+    EvalTask(
+        id="L06-tax-rate-trace",
+        suite="large",
+        category="config_trace",
+        name="税率配置追踪",
+        user_input=(
+            "追踪配置 TAX_RATE_PERCENT：它在哪个文件、以什么方式从环境变量"
+            "读取？哪个函数使用它算税？税额最终被哪个模块消费（结算链路）？"
+        ),
+        criteria=(
+            "给出：tax.py 读取 TAX_RATE_PERCENT、calculate_tax_for_order "
+            "用它算税、结算的 confirm_order 消费税额。"
+        ),
+        expected_files=6,
+        scope_hint=("src/integrations/", "src/modules/"),
+        key_facts=(
+            KeyFact(
+                "read",
+                "tax.py 从环境变量读取 TAX_RATE_PERCENT",
+                (r"tax\.py", r"TAX_RATE_PERCENT"),
+                match="all",
+            ),
+            KeyFact(
+                "use",
+                "calculate_tax_for_order 使用税率计算税额",
+                (r"calculate_tax_for_order",),
+            ),
+            KeyFact(
+                "consume",
+                "结算的 confirm_order 消费税额",
+                (r"checkout", r"confirm_order"),
+                match="all",
+            ),
+        ),
+    ),
+    EvalTask(
+        id="L07-docs-env-unused",
+        suite="large",
+        category="negative_proof",
+        name="文档中未接入的环境变量",
+        user_input=(
+            "对照 docs/env_reference.md 列出的环境变量：哪些变量在 src/ 下"
+            "从未被任何代码读取？给出全部变量名。"
+        ),
+        criteria=(
+            "指出 VOICE_ORDERS_ENABLED 与 LEGACY_EXPORT_BUCKET 两个变量"
+            "从未被读取。"
+        ),
+        expected_files=5,
+        scope_hint=("docs/", "src/"),
+        key_facts=(
+            KeyFact(
+                "voice",
+                "VOICE_ORDERS_ENABLED 从未被读取",
+                (r"VOICE_ORDERS_ENABLED",),
+            ),
+            KeyFact(
+                "bucket",
+                "LEGACY_EXPORT_BUCKET 从未被读取",
+                (r"LEGACY_EXPORT_BUCKET",),
+            ),
+        ),
+    ),
+    EvalTask(
+        id="L08-module-test-coverage",
+        suite="large",
+        category="repo_audit",
+        name="模块测试覆盖盘点",
+        user_input=(
+            "盘点测试覆盖：tests/ 下的测试文件覆盖了 src/modules/ 中的哪些"
+            "模块？还有哪些模块完全没有对应测试？给出两组清单。"
+        ),
+        criteria=(
+            "已覆盖：accounts、catalog、checkout、orders、refunds；"
+            "未覆盖：cart、shipping、inventory、promotions、reviews、"
+            "notifications、audit。"
+        ),
+        expected_files=14,
+        scope_hint=("tests/", "src/modules/"),
+        key_facts=(
+            KeyFact(
+                "covered",
+                "已覆盖清单含 checkout 与 orders 等",
+                (r"(checkout|orders)", r"(覆盖|测试)"),
+                match="all",
+            ),
+            KeyFact(
+                "cart",
+                "cart 模块无测试",
+                (r"cart", r"(没有|缺少|未覆盖|无测试|不含)"),
+                match="all",
+            ),
+            KeyFact(
+                "inventory",
+                "inventory 模块无测试",
+                (r"inventory", r"(没有|缺少|未覆盖|无测试|不含)"),
+                match="all",
+            ),
+            KeyFact(
+                "notifications",
+                "notifications 模块无测试",
+                (r"notifications", r"(没有|缺少|未覆盖|无测试|不含)"),
+                match="all",
+            ),
+        ),
+    ),
+    EvalTask(
+        id="L09-refund-error-mapping",
+        suite="large",
+        category="call_chain",
+        name="退款异常映射链",
+        user_input=(
+            "从 src/modules/refunds/handler.py 的 handle_refunds_request "
+            "出发：请求失败时 DomainError 最终如何变成 HTTP 状态码？说明"
+            "经过的函数、以及 404 与 400 各自的触发条件。"
+        ),
+        criteria=(
+            "链：handle_refunds_request（wrap_domain_errors 装饰）→ "
+            "request_refund → NotFoundError→404（订单不存在）/ ValidationError"
+            "→400（超过 MAX_REFUND_DAYS），映射在 src/api/errors.py。"
+        ),
+        expected_files=6,
+        scope_hint=("src/modules/", "src/api/", "src/core/"),
+        key_facts=(
+            KeyFact(
+                "wrap",
+                "wrap_domain_errors 捕获 DomainError",
+                (r"wrap_domain_errors",),
+            ),
+            KeyFact(
+                "map",
+                "映射函数在 src/api/errors.py",
+                (r"api[/\\]errors\.py", r"(映射|error_response|403|404|400)"),
+                match="all",
+            ),
+            KeyFact(
+                "nf",
+                "订单不存在 → NotFoundError → 404",
+                (r"NotFoundError", r"404"),
+                match="all",
+            ),
+            KeyFact(
+                "val",
+                "超出退款期 → ValidationError → 400",
+                (r"(ValidationError|MAX_REFUND_DAYS|超期|过期)", r"400"),
+                match="all",
+            ),
+        ),
+    ),
 )
 
 
@@ -744,15 +1113,21 @@ def select_tasks(
     *,
     task_ids: tuple[str, ...] = (),
     categories: tuple[str, ...] = (),
+    suites: tuple[str, ...] = (),
 ) -> tuple[EvalTask, ...]:
-    """按 ID / 分类筛选任务；两个条件都是可选的并集过滤。"""
+    """按 ID / 分类 / 套件筛选任务；条件都是可选的并集过滤。"""
 
     selected: list[EvalTask] = []
     wanted_ids = set(task_ids)
     wanted_categories = set(categories)
+    wanted_suites = set(suites)
     for task in TASKS:
-        if wanted_ids or wanted_categories:
-            if task.id not in wanted_ids and task.category not in wanted_categories:
+        if wanted_ids or wanted_categories or wanted_suites:
+            if (
+                task.id not in wanted_ids
+                and task.category not in wanted_categories
+                and task.suite not in wanted_suites
+            ):
                 continue
         selected.append(task)
     return tuple(selected)
@@ -768,6 +1143,8 @@ def validate_task_set(tasks: tuple[EvalTask, ...] = TASKS) -> None:
         seen_ids.add(task.id)
         if task.category not in CATEGORIES:
             raise ValueError(f"unknown category: {task.category!r}")
+        if task.suite not in SUITES:
+            raise ValueError(f"task {task.id}: unknown suite {task.suite!r}")
         if not task.user_input.strip() or not task.criteria.strip():
             raise ValueError(f"task {task.id} needs user_input and criteria")
         if not task.key_facts:
@@ -788,6 +1165,7 @@ def validate_task_set(tasks: tuple[EvalTask, ...] = TASKS) -> None:
 __all__ = [
     "CATEGORIES",
     "SECURITY_CATEGORY",
+    "SUITES",
     "TASKS",
     "EvalTask",
     "KeyFact",

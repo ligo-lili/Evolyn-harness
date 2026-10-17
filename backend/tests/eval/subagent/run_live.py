@@ -6,12 +6,16 @@
     .venv/bin/python -m tests.eval.subagent.run_live --arm both \\
         --task T01-locate-validate-session --task T05-login-call-chain
     .venv/bin/python -m tests.eval.subagent.run_live --arm both --category security
+    .venv/bin/python -m tests.eval.subagent.run_live --arm both --suite large
     .venv/bin/python -m tests.eval.subagent.run_live --arm both --runs 3 \\
         --provider deepseek --model deepseek-v4-flash \\
         --price-input 0.27 --price-output 1.10
 
 说明：
 
+- 预登记双套件：``--suite core``（20 个基础探索任务，对照面）与
+  ``--suite large``（9 个大范围盘点/负向证明/跨模块链任务，委派机制的
+  工作区间）分别跑批、分别归档；评分口径与门槛数字不随结果调整。
 - A 臂 = 主 Agent 直接探索（基线）；B 臂 = 现行 V1 委派（``subagent_run``，
   deferred 注册，与生产装配一致）。
 - ``--runs N``：每条任务每臂运行 N 次，报告按任务折叠（波动大的题集建议 3）。
@@ -41,7 +45,7 @@ from .reporting import (
     comparison_to_json,
     render_markdown,
 )
-from .tasks import select_tasks, validate_task_set
+from .tasks import SUITES, select_tasks, validate_task_set
 
 _DEFAULT_REPORTS_DIR = Path(__file__).resolve().parent / "reports"
 
@@ -71,6 +75,15 @@ def _parse_args() -> argparse.Namespace:
         "--category",
         action="append",
         help="只跑指定分类（可多次）：function_locate / call_chain / … / security。",
+    )
+    parser.add_argument(
+        "--suite",
+        action="append",
+        choices=SUITES,
+        help=(
+            "只跑指定套件（可多次）：core=20 个基础探索任务；"
+            "large=9 个大范围盘点/负向证明/跨模块链任务。"
+        ),
     )
     parser.add_argument(
         "--runs",
@@ -161,6 +174,7 @@ async def main(args: argparse.Namespace) -> int:
     tasks = select_tasks(
         task_ids=tuple(args.task or ()),
         categories=tuple(args.category or ()),
+        suites=tuple(args.suite or ()),
     )
     if not tasks:
         print("没有匹配的任务。", file=sys.stderr)
