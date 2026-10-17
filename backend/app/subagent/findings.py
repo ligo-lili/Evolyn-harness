@@ -4,7 +4,8 @@
 并按类型做确定性校验（exists / calls / reads_config / absent / behavior）。
 通过的发现进入返回清单（受 tier 上限约束）；校验失败的标记 invalid，留在
 账本里供 Trace，但不进入返回清单。``canonical_key`` 保证重试与重复提交幂等：
-同一条发现再次提交返回既有 finding_id。
+同一条发现再次提交返回既有 finding_id。进入返回清单的 behavior 发现可选做
+一次独立复核（v3 §6.3），判定随发现一起返回。
 """
 
 from __future__ import annotations
@@ -45,12 +46,15 @@ _MAX_PLAIN_EXCERPT_LINES = 200
 _MAX_EXCERPT_CHARS = 8_000
 _MAX_FILE_BYTES = 2 * 1024 * 1024
 _MAX_SEARCH_SCOPE = 16
+# 复核请求只看 claim 与有界的证据原文（v3 §6.3）。
+_MAX_REVIEW_EXCERPT_CHARS = 4_000
 
 _LINE_RANGE = re.compile(r"^(\d+)(?:\s*-\s*(\d+))?$")
 # reads_config 的“读取调用相邻”检查：片段里出现任一读取迹象才算通过。
 _READ_HINTS = ("getenv", "environ", "settings", "config", "get(")
 
 RecordEvidence = Callable[[str, ToolExecutionContext], Awaitable[str | None]]
+BehaviorReviewer = Callable[[str, str], Awaitable[str | None]]
 
 
 @dataclass(slots=True)
@@ -66,6 +70,9 @@ class FindingEntry:
     reason: str
     evidence_id: str | None
     listed: bool
+    # behavior 独立复核判定（supported / weak / unsupported）；未复核或复核
+    # 失败时为 None，不伪造判定。
+    review: str | None = None
 
     def as_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -84,6 +91,8 @@ class FindingEntry:
             }
         if self.evidence_id:
             payload["evidence_id"] = self.evidence_id
+        if self.review:
+            payload["review"] = self.review
         return payload
 
 
@@ -97,11 +106,16 @@ class FindingLedger:
         access_prefixes: tuple[str, ...] | None,
         tier: str,
         record_evidence: RecordEvidence | None = None,
+        review_behavior: BehaviorReviewer | None = None,
+        evidence_origin: str | None = None,
     ) -> None:
         self._workspace_root = workspace_root_path(workspace_root)
         self._access_prefixes = access_prefixes
         self.limit = FINDING_LIMITS.get(tier, FINDING_LIMITS["medium"])
         self._record_evidence = record_evidence
+        self._review_behavior = review_behavior
+        # 证据头里的来源标记（如 ``sub:ab12cd34``），便于 Trace 归因到子代理。
+        self._evidence_origin = evidence_origin
         self._entries: list[FindingEntry] = []
         self._by_key: dict[str, FindingEntry] = {}
         # 越权尝试计数（步骤 5 的 scope_violation / injection_suspected 用）。
@@ -134,17 +148,37 @@ class FindingLedger:
         verified, reason, excerpt, violation = await self._verify(payload)
         if violation is not None:
             self.scope_attempts += 1
+        redacted_excerpt = redact_secrets(excerpt) if excerpt else ""
         evidence_id: str | None = None
-        if verified and excerpt and self._record_evidence is not None:
+        if verified and redacted_excerpt and self._record_evidence is not None:
+            origin = (
+                f" · {self._evidence_origin}" if self._evidence_origin else ""
+            )
             content = (
-                f"[finding {finding_id} · {payload['type']}] "
-                f"{payload['claim']}\n\n{redact_secrets(excerpt)}"
+                f"[finding {finding_id} · {payload['type']}{origin}] "
+                f"{payload['claim']}\n\n{redacted_excerpt}"
             )
             try:
                 evidence_id = await self._record_evidence(content, context)
             except Exception:  # pragma: no cover - 归档失败不影响入账
                 evidence_id = None
         listed = verified and len(self.listed()) < self.limit
+        # behavior 独立复核（v3 §6.3）：只复核进入返回清单的 behavior 发现；
+        # 复核失败 / 超时如实记为无判定，不阻塞入账。
+        review: str | None = None
+        if (
+            listed
+            and payload["type"] == "behavior"
+            and self._review_behavior is not None
+            and redacted_excerpt
+        ):
+            try:
+                review = await self._review_behavior(
+                    payload["claim"],
+                    redacted_excerpt[:_MAX_REVIEW_EXCERPT_CHARS],
+                )
+            except Exception:  # noqa: BLE001 - 复核永远不阻塞入账
+                review = None
         entry = FindingEntry(
             finding_id=finding_id,
             type=payload["type"],
@@ -155,6 +189,7 @@ class FindingLedger:
             reason=reason,
             evidence_id=evidence_id,
             listed=listed,
+            review=review,
         )
         self._entries.append(entry)
         self._by_key[key] = entry
@@ -175,6 +210,8 @@ class FindingLedger:
             "verified_count": len(self.verified()),
             "limit": self.limit,
         }
+        if entry.review:
+            receipt["review"] = entry.review
         if status == "duplicate":
             receipt["message"] = "同一条发现此前已提交，返回既有 finding_id。"
         elif status == "invalid":
@@ -185,6 +222,11 @@ class FindingLedger:
             receipt["message"] = (
                 f"finding 清单已满（{self.limit} 条）：本条已保留在轨迹中，"
                 "但不进入返回清单；请优先用 submit_result 收尾。"
+            )
+        if status == "accepted" and entry.review == "unsupported":
+            receipt["message"] = (
+                "独立复核判断证据不支持该结论（unsupported）：请修正 claim，"
+                "或重新定位到能支撑结论的原文。"
             )
         return receipt
 

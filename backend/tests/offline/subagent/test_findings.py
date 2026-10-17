@@ -411,3 +411,193 @@ async def test_excerpt_is_redacted_before_evidence_archive(
     assert ledger.entries[0].evidence_id == "ev-1"
     assert archived and token not in archived[0]
     assert "[REDACTED:openai-key]" in archived[0]
+
+
+async def test_behavior_review_runs_on_listed_behavior_only(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    async def review(claim: str, excerpt: str) -> str | None:
+        calls.append((claim, excerpt))
+        return "supported"
+
+    workspace = tmp_path / "ws"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / "src" / "app.py").write_text(
+        "def login():\n    pass\n", encoding="utf-8"
+    )
+    ledger = FindingLedger(
+        workspace_root=workspace,
+        access_prefixes=("src",),
+        tier="medium",
+        review_behavior=review,
+    )
+    ctx = _context()
+
+    receipt = await ledger.record(
+        {
+            "type": "behavior",
+            "claim": "login 在未配置时直接放行。",
+            "locations": [{"path": "src/app.py", "lines": "1-2"}],
+        },
+        ctx,
+    )
+    assert receipt["status"] == "accepted"
+    assert receipt["review"] == "supported"
+    entry = ledger.entries[0]
+    assert entry.review == "supported"
+    assert entry.as_payload()["review"] == "supported"
+    # 复核只拿到 claim 与证据原文（独立单轮请求的输入面）。
+    assert calls and calls[0][0] == "login 在未配置时直接放行。"
+    assert "def login" in calls[0][1]
+
+    # 非 behavior 类型不复核。
+    accepted = await ledger.record(_exists_args(symbol="def login"), ctx)
+    assert accepted["status"] == "accepted"
+    assert "review" not in accepted
+    assert len(calls) == 1
+
+    # 校验失败（不进入返回清单）的 behavior 发现也不复核。
+    invalid = await ledger.record(
+        {
+            "type": "behavior",
+            "claim": "不存在的文件里的行为。",
+            "locations": [{"path": "src/missing.py", "lines": "1"}],
+        },
+        ctx,
+    )
+    assert invalid["status"] == "invalid"
+    assert "review" not in invalid
+    assert len(calls) == 1
+
+
+async def test_behavior_review_failure_and_over_limit_do_not_block(
+    tmp_path: Path,
+) -> None:
+    calls = 0
+
+    async def review(claim: str, excerpt: str) -> str | None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("review backend down")
+        return "weak"
+
+    workspace = tmp_path / "ws"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / "src" / "app.py").write_text(
+        "def login():\n    pass\n", encoding="utf-8"
+    )
+    ledger = FindingLedger(
+        workspace_root=workspace,
+        access_prefixes=("src",),
+        tier="quick",  # 返回清单上限 4 条
+        review_behavior=review,
+    )
+    ctx = _context()
+
+    receipts = []
+    for index in range(FINDING_LIMITS["quick"] + 1):
+        receipts.append(
+            await ledger.record(
+                {
+                    "type": "behavior",
+                    "claim": f"第 {index} 条行为结论。",
+                    "locations": [{"path": "src/app.py", "lines": "1-2"}],
+                },
+                ctx,
+            )
+        )
+
+    assert [item["status"] for item in receipts] == ["accepted"] * (
+        FINDING_LIMITS["quick"]
+    ) + ["over_limit"]
+    assert receipts[0]["review"] == "weak"
+    # 复核抛错不阻塞入账：判定如实为空，不伪造结果。
+    assert receipts[1]["status"] == "accepted"
+    assert "review" not in receipts[1]
+    # 超限发现不进入返回清单，也不复核。
+    assert "review" not in receipts[-1]
+    assert calls == FINDING_LIMITS["quick"]
+
+
+async def test_unsupported_review_returns_correction_hint(
+    tmp_path: Path,
+) -> None:
+    async def review(claim: str, excerpt: str) -> str | None:
+        return "unsupported"
+
+    workspace = tmp_path / "ws"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / "src" / "app.py").write_text(
+        "def login():\n    pass\n", encoding="utf-8"
+    )
+    ledger = FindingLedger(
+        workspace_root=workspace,
+        access_prefixes=("src",),
+        tier="medium",
+        review_behavior=review,
+    )
+
+    receipt = await ledger.record(
+        {
+            "type": "behavior",
+            "claim": "login 会记录审计日志。",
+            "locations": [{"path": "src/app.py", "lines": "1-2"}],
+        },
+        _context(),
+    )
+
+    assert receipt["status"] == "accepted"
+    assert receipt["review"] == "unsupported"
+    assert "unsupported" in receipt["message"]
+
+
+async def test_review_and_evidence_use_redacted_excerpt_with_origin(
+    tmp_path: Path,
+) -> None:
+    token = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
+    archived: list[str] = []
+    reviewed: list[str] = []
+
+    async def record_evidence(
+        content: str, context: ToolExecutionContext
+    ) -> str | None:
+        archived.append(content)
+        return "ev-1"
+
+    async def review(claim: str, excerpt: str) -> str | None:
+        reviewed.append(excerpt)
+        return "supported"
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "config.py").write_text(
+        f"API_KEY = '{token}'\n", encoding="utf-8"
+    )
+    ledger = FindingLedger(
+        workspace_root=workspace,
+        access_prefixes=None,
+        tier="medium",
+        record_evidence=record_evidence,
+        review_behavior=review,
+        evidence_origin="sub:ab12cd34",
+    )
+
+    receipt = await ledger.record(
+        {
+            "type": "behavior",
+            "claim": "启动时读取 API_KEY。",
+            "locations": [{"path": "config.py", "lines": "1"}],
+        },
+        _context(),
+    )
+
+    assert receipt["status"] == "accepted"
+    # 证据头带子代理来源标记，expand 时可归因到具体子代理。
+    assert archived and "[finding f1 · behavior · sub:ab12cd34]" in archived[0]
+    assert token not in archived[0]
+    assert reviewed and token not in reviewed[0]
+    assert "[REDACTED:openai-key]" in reviewed[0]
+

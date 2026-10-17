@@ -28,6 +28,7 @@ from app.subagent import (
     SubagentSettings,
     wrap_untrusted,
 )
+from app.subagent.runner import _CoverageRecord, _parse_review_verdict
 from app.tools.hooks import ToolExecutionContext
 from app.trace import RunStatus, SQLiteTraceEventHandler, SQLiteTraceStore
 from tests.offline.subagent.harness import (
@@ -646,6 +647,9 @@ async def test_parallel_delegations_obey_concurrency_cap(build_harness) -> None:
         _env_file=None,
         max_concurrency=3,
         max_invocations_per_run=5,
+        # 5 个并发委派各预留 medium 的 100k：父 Run 预算需容纳（本用例只测
+        # 并发上限，与默认 400k 的拥挤语义无关）。
+        run_token_budget=1_000_000,
         wall_clock_seconds=30,
         allow_repo_root=True,
     )
@@ -1133,6 +1137,12 @@ async def test_subagent_tool_outputs_archived_under_parent_run(
     assert len(finding_records) == 1
     assert finding_records[0].id == finding["evidence_id"]
     assert finding_records[0].run_id == result.run_id
+    # 证据头带子代理来源标记：expand 时可归因到具体子代理。
+    document = await store.resolve(
+        finding["evidence_id"], conversation_id="conv-evidence"
+    )
+    assert document is not None
+    assert f"sub:{payload['subagent_id']}" in document.content
 
 
 async def test_subagent_tool_definition_and_context_requirements(
@@ -1456,6 +1466,482 @@ async def test_tool_outputs_are_wrapped_as_untrusted_data(
     content_index = content_text.index("hello-file-content")
     close_index = content_text.index(UNTRUSTED_CLOSE)
     assert open_index < content_index < close_index
+
+
+async def test_behavior_review_runs_independently_and_counts_usage(
+    build_harness,
+) -> None:
+    harness = build_harness(
+        [
+            model_response(usage=usage(10), tool_calls=(_delegate_call(),)),
+            model_response(
+                usage=usage(50),
+                tool_calls=(
+                    tool_call(
+                        "record_finding",
+                        {
+                            "type": "behavior",
+                            "claim": "启动时会读取 notes.txt。",
+                            "locations": [
+                                {"path": "notes.txt", "lines": "1"}
+                            ],
+                        },
+                        call_id="s1",
+                    ),
+                ),
+            ),
+            # 独立复核：新上下文单轮请求，先于子循环继续消耗脚本响应。
+            model_response(content="supported", usage=usage(20)),
+            model_response(
+                usage=usage(30),
+                tool_calls=(
+                    tool_call(
+                        "submit_result",
+                        {"summary": "已确认启动读取行为。"},
+                        call_id="s2",
+                    ),
+                ),
+            ),
+            model_response(usage=usage(10), content="调查完成。"),
+        ],
+        workspace_files={"notes.txt": "hello\n"},
+    )
+
+    result = await harness.runtime.run(
+        "请调查 notes.txt",
+        event_handler=harness.events,
+    )
+
+    payload = json.loads(result.tool_calls[0].result.output)
+    assert payload["findings"][0]["review"] == "supported"
+
+    # 复核是独立请求：system 为复核提示词，只有 system + user 两条消息，
+    # 且发生在子循环提交之前。
+    reviews = harness.review_requests()
+    assert len(reviews) == 1
+    review_request = reviews[0]
+    assert len(review_request.messages) == 2
+    assert review_request.messages[0].role is MessageRole.SYSTEM
+    assert review_request.messages[1].role is MessageRole.USER
+    assert "启动时会读取 notes.txt。" in (
+        review_request.messages[1].content or ""
+    )
+    assert harness.adapter.requests[2] is review_request
+    assert len(harness.parent_requests()) == 2
+
+    # 复核用量并入这次委派：payload（50 + 30 + 20）与父 Run 都包含它。
+    assert payload["usage"]["total_tokens"] == 100
+    assert payload["usage"]["model_calls"] == 3
+    assert result.usage.total_tokens == 120
+    assert result.usage.model_calls == 5
+
+
+async def test_behavior_review_can_be_disabled(build_harness) -> None:
+    settings = SubagentSettings(
+        _env_file=None,
+        allow_repo_root=True,
+        behavior_review=False,
+    )
+    harness = build_harness(
+        [
+            model_response(usage=usage(10), tool_calls=(_delegate_call(),)),
+            model_response(
+                usage=usage(50),
+                tool_calls=(
+                    tool_call(
+                        "record_finding",
+                        {
+                            "type": "behavior",
+                            "claim": "启动时会读取 notes.txt。",
+                            "locations": [
+                                {"path": "notes.txt", "lines": "1"}
+                            ],
+                        },
+                        call_id="s1",
+                    ),
+                ),
+            ),
+            model_response(
+                usage=usage(30),
+                tool_calls=(
+                    tool_call(
+                        "submit_result",
+                        {"summary": "已确认。"},
+                        call_id="s2",
+                    ),
+                ),
+            ),
+            model_response(usage=usage(10), content="调查完成。"),
+        ],
+        workspace_files={"notes.txt": "hello\n"},
+        settings=settings,
+    )
+
+    result = await harness.runtime.run(
+        "请调查 notes.txt",
+        event_handler=harness.events,
+    )
+
+    payload = json.loads(result.tool_calls[0].result.output)
+    assert "review" not in payload["findings"][0]
+    assert harness.review_requests() == []
+    assert payload["usage"]["total_tokens"] == 80
+
+
+def test_parse_review_verdict_prefers_unsupported() -> None:
+    assert _parse_review_verdict("unsupported") == "unsupported"
+    # "not supported" 含 supported 子串，必须优先判为 unsupported。
+    assert _parse_review_verdict("not supported") == "unsupported"
+    assert _parse_review_verdict("判定：supported。") == "supported"
+    assert _parse_review_verdict("This is weak") == "weak"
+    assert _parse_review_verdict("无法判断") is None
+    assert _parse_review_verdict(None) is None
+
+
+async def test_run_token_budget_clamps_and_rejects_after_settlement(
+    build_harness,
+) -> None:
+    harness = build_harness(
+        [
+            model_response(
+                usage=usage(10),
+                tool_calls=(
+                    _delegate_call(goal="第一次调查 notes.txt", call_id="p1"),
+                ),
+            ),
+            # 第一次委派消耗 1400（submit 终止子循环，本轮不再检查预算）。
+            model_response(
+                usage=usage(1_400),
+                tool_calls=(
+                    tool_call(
+                        "submit_result",
+                        {"summary": "第一次"},
+                        call_id="s1",
+                    ),
+                ),
+            ),
+            model_response(
+                usage=usage(10),
+                tool_calls=(
+                    _delegate_call(goal="第二次调查 notes.txt", call_id="p2"),
+                ),
+            ),
+            # 第二次委派的预算被裁剪到 100：首个响应 150 已越线，下一个
+            # 模型请求前硬停（RUN_BUDGET），不再有完整 tier 预算可用。
+            model_response(
+                usage=usage(150),
+                tool_calls=(
+                    tool_call(
+                        "read_file",
+                        {"path": "notes.txt"},
+                        call_id="s2",
+                    ),
+                ),
+            ),
+            model_response(
+                usage=usage(10),
+                tool_calls=(
+                    _delegate_call(goal="第三次调查 notes.txt", call_id="p3"),
+                ),
+            ),
+            model_response(usage=usage(10), content="自己接手。"),
+        ],
+        settings=SubagentSettings(
+            _env_file=None,
+            allow_repo_root=True,
+            run_token_budget=1_500,
+        ),
+        workspace_files={"notes.txt": "hello\n"},
+    )
+
+    result = await harness.runtime.run(
+        "请调查 notes.txt",
+        event_handler=harness.events,
+    )
+
+    assert result.ok is True
+    records = list(result.tool_calls)
+    assert len(records) == 3
+    assert records[0].result.success is True
+
+    second = json.loads(records[1].result.output)
+    assert second["status"] == "failed"
+    assert second["failed_reason"] == "budget_exhausted"
+    assert second["stop_reason"] == "run_budget"
+
+    # 累计 1400 + 150 ≥ 1500：第三次委派被拒绝，且不消耗模型调用。
+    assert records[2].result.success is False
+    assert "累计 Token 预算已用尽" in (records[2].result.error or "")
+    assert len(harness.sub_requests()) == 2
+
+
+async def test_parallel_delegations_reserve_run_token_budget(
+    build_harness,
+) -> None:
+    calls = tuple(
+        _delegate_call(
+            grants=["web_search"],
+            memory="none",
+            goal=f"调查第 {index} 块",
+            call_id=f"c{index}",
+        )
+        for index in range(3)
+    )
+    harness = build_harness(
+        [
+            model_response(usage=usage(10), tool_calls=calls),
+            # 只有第一个委派能拿到预算并启动；其余两个在预留阶段被拒绝。
+            model_response(
+                usage=usage(800),
+                tool_calls=(
+                    tool_call(
+                        "submit_result",
+                        {"summary": "ok"},
+                        call_id="s0",
+                    ),
+                ),
+            ),
+            model_response(usage=usage(10), content="调查完成。"),
+        ],
+        # 让三个委派真正并发（假件无延迟时子运行不让出事件循环，任务会串行）。
+        delay=0.05,
+        settings=SubagentSettings(
+            _env_file=None,
+            allow_repo_root=True,
+            run_token_budget=1_500,
+            max_concurrency=3,
+            max_invocations_per_run=5,
+        ),
+    )
+
+    result = await harness.runtime.run(
+        "请调查",
+        event_handler=harness.events,
+    )
+
+    assert len(harness.sub_requests()) == 1
+    records = list(result.tool_calls)
+    assert len(records) == 3
+    successes = [record for record in records if record.result.success]
+    failures = [record for record in records if not record.result.success]
+    assert len(successes) == 1
+    assert len(failures) == 2
+    assert all(
+        "累计 Token 预算已用尽" in (record.result.error or "")
+        for record in failures
+    )
+    # 拒绝的委派不消耗模型调用：父 2 + 唯一启动的子 1。
+    assert len(harness.adapter.requests) == 3
+
+
+async def test_run_budget_claim_and_settle_are_balanced(build_harness) -> None:
+    harness = build_harness(
+        [],
+        settings=SubagentSettings(
+            _env_file=None,
+            allow_repo_root=True,
+            run_token_budget=1_500,
+        ),
+    )
+    runner = harness.runner
+
+    take = runner._claim_run_budgets("run-x", "medium")
+    assert take == 1_500
+    # 预留未结清时，并发委派只能拿到剩余（此处已无剩余）。
+    with pytest.raises(CapabilityError, match="累计 Token 预算已用尽"):
+        runner._claim_run_budgets("run-x", "medium")
+
+    runner._settle_run_budgets(
+        "run-x", take=take, usage_tokens=800, elapsed=0.5
+    )
+    assert runner._run_reserved == {}
+    assert runner._run_tokens["run-x"] == 800
+    assert runner._run_wall_clock["run-x"] == 0.5
+
+    # 结清后剩余 700：下一次委派拿到裁剪后的额度。
+    assert runner._claim_run_budgets("run-x", "medium") == 700
+    runner._settle_run_budgets(
+        "run-x", take=700, usage_tokens=0, elapsed=None
+    )
+    assert runner._run_reserved == {}
+
+    runner._run_coverage["run-x"] = [
+        _CoverageRecord(
+            subagent_id="abc12345",
+            prefixes=("src",),
+            goal="调查",
+            tier="medium",
+            verified_count=0,
+            summary=None,
+        )
+    ]
+    await runner.release_run("run-x")
+    assert runner._run_tokens == {}
+    assert runner._run_wall_clock == {}
+    assert runner._run_coverage == {}
+
+
+async def test_run_wall_clock_budget_blocks_further_delegations(
+    build_harness,
+) -> None:
+    harness = build_harness(
+        [
+            model_response(
+                usage=usage(10),
+                tool_calls=(_delegate_call(call_id="p1"),),
+            ),
+            model_response(
+                usage=usage(20),
+                tool_calls=(
+                    tool_call(
+                        "submit_result",
+                        {"summary": "ok"},
+                        call_id="s1",
+                    ),
+                ),
+            ),
+            model_response(
+                usage=usage(10),
+                tool_calls=(_delegate_call(call_id="p2"),),
+            ),
+            model_response(usage=usage(10), content="自己接手。"),
+        ],
+        settings=SubagentSettings(
+            _env_file=None,
+            allow_repo_root=True,
+            run_wall_clock_budget_seconds=0.01,
+        ),
+        workspace_files={"notes.txt": "hello\n"},
+        delay=0.02,
+    )
+
+    result = await harness.runtime.run(
+        "请调查 notes.txt",
+        event_handler=harness.events,
+    )
+
+    assert result.ok is True
+    records = list(result.tool_calls)
+    assert len(records) == 2
+    assert records[0].result.success is True
+    assert records[1].result.success is False
+    assert "累计执行时间" in (records[1].result.error or "")
+    # Run 结束后清空累计状态（run_finalizers）。
+    assert harness.runner._run_wall_clock == {}
+
+
+async def test_later_delegation_receives_covered_scope_note(
+    build_harness,
+) -> None:
+    harness = build_harness(
+        [
+            model_response(
+                usage=usage(10),
+                tool_calls=(
+                    _delegate_call(
+                        goal="调查 src/auth 模块",
+                        scope_paths=["src/auth"],
+                        call_id="p1",
+                    ),
+                ),
+            ),
+            model_response(
+                usage=usage(20),
+                tool_calls=(
+                    tool_call(
+                        "submit_result",
+                        {"summary": "已确认 auth 模块结构。"},
+                        call_id="s1",
+                    ),
+                ),
+            ),
+            model_response(
+                usage=usage(10),
+                tool_calls=(
+                    _delegate_call(
+                        goal="继续调查 src/auth/session.py",
+                        scope_paths=["src/auth"],
+                        call_id="p2",
+                    ),
+                ),
+            ),
+            model_response(
+                usage=usage(20),
+                tool_calls=(
+                    tool_call(
+                        "submit_result",
+                        {"summary": "已确认 session 细节。"},
+                        call_id="s2",
+                    ),
+                ),
+            ),
+            model_response(usage=usage(10), content="调查完成。"),
+        ],
+        workspace_files={"src/auth/session.py": "def login():\n    pass\n"},
+        settings=SubagentSettings(_env_file=None, allow_repo_root=True),
+    )
+
+    result = await harness.runtime.run(
+        "请调查 src/auth",
+        event_handler=harness.events,
+    )
+
+    assert result.ok is True
+    sub_requests = harness.sub_requests()
+    assert len(sub_requests) == 2
+
+    def brief(request) -> str:
+        return next(
+            message.content or ""
+            for message in request.messages
+            if message.role is MessageRole.USER
+        )
+
+    first_brief = brief(sub_requests[0])
+    second_brief = brief(sub_requests[1])
+    assert "先前委派覆盖提示" not in first_brief
+    assert "先前委派覆盖提示（同一父任务）" in second_brief
+    assert "src/auth/" in second_brief
+    assert "调查 src/auth 模块" in second_brief
+    assert "已验证发现 0 条" in second_brief
+    # Run 结束后覆盖记录被清理。
+    assert harness.runner._run_coverage == {}
+
+
+def test_coverage_overlaps_skip_continuation_and_disjoint_scopes(
+    build_harness,
+) -> None:
+    harness = build_harness([])
+    record = _CoverageRecord(
+        subagent_id="abc12345",
+        prefixes=("src/auth",),
+        goal="调查 auth",
+        tier="medium",
+        verified_count=2,
+        summary=None,
+    )
+    harness.runner._run_coverage["run-x"] = [record]
+
+    assert harness.runner._coverage_overlaps(
+        "run-x", ("src/auth",), skip_id=None
+    ) == ((record, ("src/auth",)),)
+    # 续跑对象本身不重复提示。
+    assert (
+        harness.runner._coverage_overlaps(
+            "run-x", ("src/auth",), skip_id="abc12345"
+        )
+        == ()
+    )
+    # 互不包含的路径无交集；整仓与任何范围都重叠。
+    assert (
+        harness.runner._coverage_overlaps(
+            "run-x", ("src/other",), skip_id=None
+        )
+        == ()
+    )
+    assert harness.runner._coverage_overlaps(
+        "run-x", None, skip_id=None
+    ) == ((record, ("src/auth",)),)
 
 
 async def test_sensitive_path_reads_count_toward_violation_limit(

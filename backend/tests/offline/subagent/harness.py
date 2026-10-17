@@ -41,6 +41,7 @@ from app.tools.executor import ToolExecutor
 from app.tools.registry import ToolRegistry
 
 SUBAGENT_PROMPT_MARKER = "你是 Evolyn 的子代理"
+REVIEW_PROMPT_MARKER = "你是独立复核员"
 
 
 class FakeModelAdapter(ModelAdapter):
@@ -239,12 +240,28 @@ class Harness:
                     break
         return result
 
-    def parent_requests(self) -> list[ModelRequest]:
-        sub_ids = {id(request) for request in self.sub_requests()}
+    def review_requests(self) -> list[ModelRequest]:
+        """behavior 独立复核请求：系统提示词为复核专用。"""
+
         return [
             request
             for request in self.adapter.requests
-            if id(request) not in sub_ids
+            if any(
+                message.role is MessageRole.SYSTEM
+                and message.content
+                and REVIEW_PROMPT_MARKER in message.content
+                for message in request.messages[:2]
+            )
+        ]
+
+    def parent_requests(self) -> list[ModelRequest]:
+        excluded = {
+            id(request) for request in self.sub_requests()
+        } | {id(request) for request in self.review_requests()}
+        return [
+            request
+            for request in self.adapter.requests
+            if id(request) not in excluded
         ]
 
 
