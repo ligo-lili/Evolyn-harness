@@ -1,0 +1,423 @@
+{
+  "meta": {
+    "generated_at": "2026-10-17T13:19:48+00:00",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "task_count": 3,
+    "runs_per_task": 1,
+    "arms": [
+      "direct",
+      "delegate"
+    ],
+    "run_root": "C:\\Users\\cjy\\AppData\\Local\\Temp\\evolyn-subagent-eval-6nkhnw84",
+    "command": "C:\\agents\\Evolyn\\backend\\tests\\eval\\subagent\\run_live.py --arm both --suite digest --runs 1 --provider deepseek --model deepseek-v4-flash --price-input 0.14 --price-output 0.28 --allow-no-go --out tests/eval/subagent/reports/pilot_digest_3tasks_20261017.md"
+  },
+  "thresholds": {
+    "min_context_reduction": 0.5,
+    "max_correctness_drop": 0.05,
+    "max_cost_ratio": 1.3
+  },
+  "cost_basis": "api_cost",
+  "prices": {
+    "input_per_million": 0.14,
+    "output_per_million": 0.28,
+    "currency": "USD"
+  },
+  "verdict": {
+    "result": "No-go",
+    "passed": false,
+    "checks": [
+      {
+        "name": "上下文峰值降幅",
+        "passed": false,
+        "detail": "A 均值 12,471 → B 均值 14,145，降幅 -13.4%（要求 ≥ 50%；口径：主 Run 最大 prompt token，逐任务先折叠再跨任务平均）"
+      },
+      {
+        "name": "正确率下降幅度",
+        "passed": true,
+        "detail": "关键结论正确率 A 25.0% → B 45.0%，下降 -20.0pp（要求 ≤ 5pp；严格通过率 A 0% / B 0%，仅作参考）"
+      },
+      {
+        "name": "安全关键错误",
+        "passed": true,
+        "detail": "安全子集关键错误 A 0 → B 0（要求 B ≤ A）"
+      },
+      {
+        "name": "总成本比值",
+        "passed": false,
+        "detail": "口径 API 成本（USD）：A 0.1364 → B 0.2289，比值 1.68（要求 ≤ 1.3）"
+      }
+    ]
+  },
+  "summary": {
+    "context_mean_direct": 12470.666666666666,
+    "context_mean_delegate": 14145.0,
+    "context_reduction": -0.13426173420292953,
+    "cost_direct": 0.13636392000000003,
+    "cost_delegate": 0.22892674000000002,
+    "cost_ratio": 1.678792601444722,
+    "direct": {
+      "run_count": 3,
+      "ok_count": 3,
+      "strict_pass_rate": 0.0,
+      "key_fact_rate": 0.25,
+      "security_critical_errors": 0,
+      "security_key_fact_rate": 0.0,
+      "peak_mean": 12470.666666666666,
+      "peak_max": 14636,
+      "main_chargeable_total": 718866,
+      "chargeable_total": 718866,
+      "payload_chars_total": 0,
+      "subagent_calls_total": 0,
+      "tool_search_total": 0,
+      "subagent_attempts_total": 0,
+      "duration_total_s": 262.4
+    },
+    "delegate": {
+      "run_count": 3,
+      "ok_count": 3,
+      "strict_pass_rate": 0.0,
+      "key_fact_rate": 0.45,
+      "security_critical_errors": 0,
+      "security_key_fact_rate": 0.0,
+      "peak_mean": 14145.0,
+      "peak_max": 16759,
+      "main_chargeable_total": 688475,
+      "chargeable_total": 945171,
+      "payload_chars_total": 2227,
+      "subagent_calls_total": 3,
+      "tool_search_total": 2,
+      "subagent_attempts_total": 19,
+      "duration_total_s": 413.2
+    }
+  },
+  "tasks": [
+    {
+      "task_id": "D01-specs-impl-mismatch",
+      "category": "digest_synthesis",
+      "direct": [
+        {
+          "task_id": "D01-specs-impl-mismatch",
+          "task_name": "规格与实现不一致清单",
+          "category": "digest_synthesis",
+          "arm": "direct",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 93.565,
+          "steps": 36,
+          "tool_calls": 157,
+          "main_peak_prompt_tokens": 12891,
+          "main_last_prompt_tokens": 7919,
+          "main_mean_prompt_tokens": 8551.7,
+          "prompt_sample_count": 36,
+          "main_input_tokens": 307862,
+          "main_output_tokens": 14130,
+          "main_model_calls": 36,
+          "main_chargeable_tokens": 252616,
+          "sub_input_tokens": 0,
+          "sub_output_tokens": 0,
+          "sub_model_calls": 0,
+          "sub_chargeable_tokens": 0,
+          "all_chargeable_tokens": 252616,
+          "subagent_calls": 0,
+          "result_payload_chars": 0,
+          "expand_chars": 0,
+          "files_read_main": 48,
+          "main_tool_search_calls": 0,
+          "main_subagent_attempts": 0,
+          "expected_files": 22,
+          "answer": {
+            "matched": [
+              "tax-rounding",
+              "notify-error-type",
+              "email-bulk-cap",
+              "promo-duplicate-conflict"
+            ],
+            "missing": [
+              "checkout-retry",
+              "lockout-window",
+              "audit-write-channel",
+              "legacy-retries-default"
+            ],
+            "critical_missing": [],
+            "key_fact_total": 8,
+            "key_fact_matched": 4,
+            "key_fact_rate": 0.5,
+            "passed": false
+          }
+        }
+      ],
+      "delegate": [
+        {
+          "task_id": "D01-specs-impl-mismatch",
+          "task_name": "规格与实现不一致清单",
+          "category": "digest_synthesis",
+          "arm": "delegate",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 252.4,
+          "steps": 36,
+          "tool_calls": 121,
+          "main_peak_prompt_tokens": 16759,
+          "main_last_prompt_tokens": 6695,
+          "main_mean_prompt_tokens": 10810.1,
+          "prompt_sample_count": 36,
+          "main_input_tokens": 389164,
+          "main_output_tokens": 29508,
+          "main_model_calls": 36,
+          "main_chargeable_tokens": 210544,
+          "sub_input_tokens": 482199,
+          "sub_output_tokens": 17185,
+          "sub_model_calls": 49,
+          "sub_chargeable_tokens": 256696,
+          "all_chargeable_tokens": 467240,
+          "subagent_calls": 3,
+          "result_payload_chars": 2227,
+          "expand_chars": 0,
+          "files_read_main": 47,
+          "main_tool_search_calls": 2,
+          "main_subagent_attempts": 19,
+          "expected_files": 22,
+          "answer": {
+            "matched": [
+              "promo-duplicate-conflict"
+            ],
+            "missing": [
+              "checkout-retry",
+              "tax-rounding",
+              "notify-error-type",
+              "lockout-window",
+              "audit-write-channel",
+              "email-bulk-cap",
+              "legacy-retries-default"
+            ],
+            "critical_missing": [],
+            "key_fact_total": 8,
+            "key_fact_matched": 1,
+            "key_fact_rate": 0.125,
+            "passed": false
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "D02-specs-internal-conflicts",
+      "category": "digest_synthesis",
+      "direct": [
+        {
+          "task_id": "D02-specs-internal-conflicts",
+          "task_name": "规格文档内部矛盾清单",
+          "category": "digest_synthesis",
+          "arm": "direct",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 95.482,
+          "steps": 36,
+          "tool_calls": 171,
+          "main_peak_prompt_tokens": 14636,
+          "main_last_prompt_tokens": 9817,
+          "main_mean_prompt_tokens": 8302.3,
+          "prompt_sample_count": 36,
+          "main_input_tokens": 298882,
+          "main_output_tokens": 13781,
+          "main_model_calls": 36,
+          "main_chargeable_tokens": 258903,
+          "sub_input_tokens": 0,
+          "sub_output_tokens": 0,
+          "sub_model_calls": 0,
+          "sub_chargeable_tokens": 0,
+          "all_chargeable_tokens": 258903,
+          "subagent_calls": 0,
+          "result_payload_chars": 0,
+          "expand_chars": 0,
+          "files_read_main": 55,
+          "main_tool_search_calls": 0,
+          "main_subagent_attempts": 0,
+          "expected_files": 35,
+          "answer": {
+            "matched": [],
+            "missing": [
+              "pagination-cap-conflict",
+              "error-body-fields-conflict",
+              "release-window-conflict",
+              "retention-conflict"
+            ],
+            "critical_missing": [],
+            "key_fact_total": 4,
+            "key_fact_matched": 0,
+            "key_fact_rate": 0.0,
+            "passed": false
+          }
+        }
+      ],
+      "delegate": [
+        {
+          "task_id": "D02-specs-internal-conflicts",
+          "task_name": "规格文档内部矛盾清单",
+          "category": "digest_synthesis",
+          "arm": "delegate",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 95.772,
+          "steps": 36,
+          "tool_calls": 188,
+          "main_peak_prompt_tokens": 15068,
+          "main_last_prompt_tokens": 8366,
+          "main_mean_prompt_tokens": 8997.5,
+          "prompt_sample_count": 36,
+          "main_input_tokens": 323910,
+          "main_output_tokens": 14603,
+          "main_model_calls": 36,
+          "main_chargeable_tokens": 267857,
+          "sub_input_tokens": 0,
+          "sub_output_tokens": 0,
+          "sub_model_calls": 0,
+          "sub_chargeable_tokens": 0,
+          "all_chargeable_tokens": 267857,
+          "subagent_calls": 0,
+          "result_payload_chars": 0,
+          "expand_chars": 0,
+          "files_read_main": 66,
+          "main_tool_search_calls": 0,
+          "main_subagent_attempts": 0,
+          "expected_files": 35,
+          "answer": {
+            "matched": [
+              "pagination-cap-conflict"
+            ],
+            "missing": [
+              "error-body-fields-conflict",
+              "release-window-conflict",
+              "retention-conflict"
+            ],
+            "critical_missing": [],
+            "key_fact_total": 4,
+            "key_fact_matched": 1,
+            "key_fact_rate": 0.25,
+            "passed": false
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "D03-audit-event-conformance",
+      "category": "digest_synthesis",
+      "direct": [
+        {
+          "task_id": "D03-audit-event-conformance",
+          "task_name": "审计事件兑现矩阵",
+          "category": "digest_synthesis",
+          "arm": "direct",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 73.379,
+          "steps": 36,
+          "tool_calls": 78,
+          "main_peak_prompt_tokens": 9885,
+          "main_last_prompt_tokens": 5928,
+          "main_mean_prompt_tokens": 8215.1,
+          "prompt_sample_count": 36,
+          "main_input_tokens": 295744,
+          "main_output_tokens": 7859,
+          "main_model_calls": 36,
+          "main_chargeable_tokens": 207347,
+          "sub_input_tokens": 0,
+          "sub_output_tokens": 0,
+          "sub_model_calls": 0,
+          "sub_chargeable_tokens": 0,
+          "all_chargeable_tokens": 207347,
+          "subagent_calls": 0,
+          "result_payload_chars": 0,
+          "expand_chars": 0,
+          "files_read_main": 14,
+          "main_tool_search_calls": 0,
+          "main_subagent_attempts": 0,
+          "expected_files": 12,
+          "answer": {
+            "matched": [
+              "logout-missing"
+            ],
+            "missing": [
+              "login-mismatch",
+              "export-mismatch",
+              "password-mismatch",
+              "order-confirm-missing",
+              "refund-request-missing",
+              "review-publish-missing",
+              "notification-dispatch-missing"
+            ],
+            "critical_missing": [],
+            "key_fact_total": 8,
+            "key_fact_matched": 1,
+            "key_fact_rate": 0.125,
+            "passed": false
+          }
+        }
+      ],
+      "delegate": [
+        {
+          "task_id": "D03-audit-event-conformance",
+          "task_name": "审计事件兑现矩阵",
+          "category": "digest_synthesis",
+          "arm": "delegate",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 65.009,
+          "steps": 36,
+          "tool_calls": 72,
+          "main_peak_prompt_tokens": 10608,
+          "main_last_prompt_tokens": 8145,
+          "main_mean_prompt_tokens": 8402.8,
+          "prompt_sample_count": 36,
+          "main_input_tokens": 302502,
+          "main_output_tokens": 7412,
+          "main_model_calls": 36,
+          "main_chargeable_tokens": 210074,
+          "sub_input_tokens": 0,
+          "sub_output_tokens": 0,
+          "sub_model_calls": 0,
+          "sub_chargeable_tokens": 0,
+          "all_chargeable_tokens": 210074,
+          "subagent_calls": 0,
+          "result_payload_chars": 0,
+          "expand_chars": 0,
+          "files_read_main": 12,
+          "main_tool_search_calls": 0,
+          "main_subagent_attempts": 0,
+          "expected_files": 12,
+          "answer": {
+            "matched": [
+              "login-mismatch",
+              "logout-missing",
+              "export-mismatch",
+              "order-confirm-missing",
+              "refund-request-missing",
+              "review-publish-missing",
+              "notification-dispatch-missing"
+            ],
+            "missing": [
+              "password-mismatch"
+            ],
+            "critical_missing": [],
+            "key_fact_total": 8,
+            "key_fact_matched": 7,
+            "key_fact_rate": 0.875,
+            "passed": false
+          }
+        }
+      ]
+    }
+  ]
+}
