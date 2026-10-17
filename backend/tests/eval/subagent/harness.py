@@ -14,7 +14,9 @@ get_current_time），移除写入、shell、网络工具，避免评测改变�
 额外费用。Evidence 链路与生产同源：工具输出与子代理发现原文落
 ``root/eval.db``，``evidence_search`` / ``evidence_read`` 按需加载
 （deferred），两臂一致。B 臂的子代理 Trace 同样写入该库，便于复盘调查
-过程。Run Budget 关闭：评测关注自然完成下的成本，而不是预算截断行为。
+过程。**主 Run 的 Run Budget 关闭**（两臂一致，评测关注自然完成下的成本，
+而不是主 Run 预算截断行为）；**子代理沿用生产默认子预算**（tier 三档
+quick/medium/thorough + 父 Run 累计上限），与生产一致，不另行放宽。
 """
 
 from __future__ import annotations

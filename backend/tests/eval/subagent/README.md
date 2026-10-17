@@ -36,9 +36,11 @@ subagent/
 
 两臂共用同一装配：系统提示词、步数上限、只读工具集（read_file /
 list_files / get_current_time）、Evidence 链路（工具输出与子代理发现原文
-落 `root/eval.db`，`evidence_search` / `evidence_read` 按需加载）、关闭
-Run Budget。唯一差异是 B 臂多一个委派工具，因此对比的是「有无委派能力」。
-B 臂的子代理 Trace 同样写入 `eval.db`，用于复盘调查过程。
+落 `root/eval.db`，`evidence_search` / `evidence_read` 按需加载）、主 Run
+的 Run Budget 关闭（两臂一致，评测关注自然完成下的成本）。B 臂的子代理
+沿用生产默认子预算（tier 三档 quick/medium/thorough + 父 Run 累计上限），
+与生产一致、不另行放宽。唯一差异是 B 臂多一个委派工具，因此对比的是
+「有无委派能力」。B 臂的子代理 Trace 同样写入 `eval.db`，用于复盘调查过程。
 
 ## 指标口径（报告不得换口径）
 
