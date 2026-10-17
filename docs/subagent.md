@@ -156,7 +156,8 @@ tier 给出一组初始预算；**settings 里的对应字段是部署级上限*
   `*.pem` / `*.key` / `*.p12` 等、`.ssh` / `.aws` / `.kube` 等目录、
   `credentials*`）对子代理**不可见**：读取被拒绝，列表 / grep / glob 结果
   隐去这些条目，`git_status` / `git_diff` / `git_show` 按文件片段过滤
-  （敏感文件的历史版本同样不返回，替换为一句策略说明）；`.env.example` /
+  （敏感文件的历史版本同样不返回，替换为一句策略说明；合并提交与冲突态
+  的 combined diff `diff --cc` 同样过滤）；`.env.example` /
   `.sample` / `.template` 模板放行。显式指向敏感路径的调用按越权拒绝并计入
   下条计数（拒绝消息带 `scope_violation:` 标记）；策略规则见
   `backend/app/subagent/redaction.py`。

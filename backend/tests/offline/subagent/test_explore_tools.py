@@ -271,6 +271,10 @@ async def test_grep_and_glob_skip_sensitive_paths(tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="scope_violation"):
             await grep.execute({"pattern": "TOKEN_LOOKUP", "path": bad})
 
+    # 敏感检查先于存在性检查：不存在的敏感路径同样拒绝并计数。
+    with pytest.raises(ValueError, match="scope_violation"):
+        await grep.execute({"pattern": "TOKEN_LOOKUP", "path": ".env.local"})
+
     glob = GlobTool(workspace_root=workspace, prefixes=None)
     payload = await glob.execute({"pattern": "**/*"})
     assert "src/app.py" in payload["files"]
@@ -354,3 +358,144 @@ def test_filter_patch_and_status_handle_quoted_and_renamed_paths() -> None:
     assert "server.pem" not in filtered_status
     assert ".ssh/config" not in filtered_status
     assert "notes.txt" in filtered_status
+
+
+def test_filter_patch_handles_combined_diff_sections() -> None:
+    from app.subagent.explore_tools import _filter_patch
+
+    patch = (
+        "commit c188f54\n"
+        "Merge: 6dc3749 26a0dc8\n"
+        "\n"
+        "    merge resolve\n"
+        "\n"
+        "diff --cc .env\n"
+        "index eb9e66e,34bc6f8..671d374\n"
+        "--- a/.env\n"
+        "+++ b/.env\n"
+        "@@@ -1,1 -1,1 +1,1 @@@\n"
+        "- SECRET=main\n"
+        " -SECRET=feature\n"
+        "++SECRET=merged\n"
+        "diff --cc wei rd.txt\n"
+        "index 5799d3c,b9cf0e5..0000000\n"
+        "--- a/wei rd.txt\n"
+        "+++ b/wei rd.txt\n"
+        "@@@ -1,1 -1,1 +1,1 @@@\n"
+        "- hello main\n"
+        " -hello feature\n"
+        "++hello merged\n"
+        "diff --git a/src/app.py b/src/app.py\n"
+        "--- a/src/app.py\n"
+        "+++ b/src/app.py\n"
+        "@@ -1 +1 @@\n"
+        "-x\n"
+        "+y\n"
+    )
+
+    filtered = _filter_patch(patch)
+
+    # 敏感文件的 combined diff 段整体丢弃。
+    assert "SECRET" not in filtered
+    assert "diff --cc .env" not in filtered
+    # 非敏感文件的 combined / 常规段保留，敏感段处有策略说明。
+    assert "wei rd.txt" in filtered
+    assert "hello merged" in filtered
+    assert "src/app.py" in filtered
+    assert "one file section was removed" in filtered
+
+
+async def test_git_show_filters_merge_combined_diff(tmp_path: Path) -> None:
+    workspace = _make_repo(tmp_path)
+    (workspace / ".env").write_text(
+        "SECRET=base\nKEEP=shared\nMODE=base\n", encoding="utf-8"
+    )
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-qm", "add env")
+    base_branch = _git(workspace, "rev-parse", "--abbrev-ref", "HEAD")
+
+    _git(workspace, "checkout", "-qb", "feature")
+    (workspace / ".env").write_text(
+        "SECRET=base\nKEEP=shared\nMODE=feature\n", encoding="utf-8"
+    )
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-qm", "feature env")
+
+    _git(workspace, "checkout", "-q", base_branch)
+    (workspace / ".env").write_text(
+        "SECRET=main\nKEEP=shared\nMODE=base\n", encoding="utf-8"
+    )
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-qm", "main env")
+    _git(workspace, "merge", "-q", "-m", "merge feature", "feature")
+
+    # 先确认原始输出确实是 combined diff，保证用例覆盖到目标格式。
+    raw = subprocess.run(
+        [GIT, "show", "--no-color", "HEAD"],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "diff --cc .env" in raw
+    assert "MODE=feature" in raw
+
+    show = GitShowTool(workspace_root=workspace, prefixes=None)
+    payload = await show.execute({"rev": "HEAD"})
+    assert "MODE=feature" not in payload["output"]
+    assert "SECRET=main" not in payload["output"]
+    assert "diff --cc" not in payload["output"]
+    assert "one file section was removed" in payload["output"]
+
+
+async def test_git_diff_filters_conflicted_combined_diff(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "conflict").mkdir()
+    workspace = _make_repo(tmp_path / "conflict")
+    (workspace / ".env").write_text("SECRET=base\n", encoding="utf-8")
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-qm", "add env")
+    base_branch = _git(workspace, "rev-parse", "--abbrev-ref", "HEAD")
+
+    _git(workspace, "checkout", "-qb", "feature")
+    (workspace / ".env").write_text("SECRET=feature\n", encoding="utf-8")
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-qm", "feature env")
+
+    _git(workspace, "checkout", "-q", base_branch)
+    (workspace / ".env").write_text("SECRET=main\n", encoding="utf-8")
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-qm", "main env")
+
+    conflicted = subprocess.run(
+        [
+            GIT,
+            "-c",
+            "user.name=offline-test",
+            "-c",
+            "user.email=offline@example.com",
+            "merge",
+            "feature",
+        ],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+    )
+    assert conflicted.returncode != 0
+
+    # 冲突态的 git diff 同样走 combined diff。
+    raw = subprocess.run(
+        [GIT, "diff", "--no-color"],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "diff --cc .env" in raw
+
+    diff = GitDiffTool(workspace_root=workspace, prefixes=None)
+    payload = await diff.execute({})
+    assert "SECRET" not in payload["output"]
+    assert "diff --cc" not in payload["output"]
+    assert "one file section was removed" in payload["output"]

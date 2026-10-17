@@ -216,15 +216,17 @@ class GrepTool(BaseTool):
             self._prefixes,
             allow_root=True,
         )
-        if not target.exists():
-            raise ValueError(f"path does not exist: {path!r}")
         relative = (
             "."
             if target == self._workspace_root
             else target.relative_to(self._workspace_root).as_posix()
         )
+        # 敏感检查先于存在性检查：不存在的敏感路径同样拒绝并计入越权，
+        # 也避免通过错误信息区分敏感文件是否存在。
         if is_sensitive_path(relative):
             raise ValueError(sensitive_rejection_text(path))
+        if not target.exists():
+            raise ValueError(f"path does not exist: {path!r}")
         return (target,)
 
     def _search(
@@ -696,26 +698,62 @@ def _strip_ab_prefix(path: str) -> str:
     return path
 
 
-def _diff_header_paths(line: str) -> tuple[str, str] | None:
-    """解析 ``diff --git a/… b/…`` 行；无法解析返回 None（按敏感处理）。"""
+_DIFF_HEADER_PREFIXES = ("diff --git ", "diff --cc ", "diff --combined ")
 
-    rest = line[len("diff --git ") :]
-    if rest.startswith('"'):
-        try:
-            tokens = shlex.split(rest)
-        except ValueError:
+
+def _diff_header_paths(line: str) -> tuple[str, ...] | None:
+    """解析 diff 头行涉及的工作区路径；无法解析返回 None（按敏感处理）。
+
+    ``diff --git`` 的两个路径带 ``a/`` / ``b/`` 前缀；combined diff（合并
+    提交的 ``git show`` 与冲突态的 ``git diff``）的 ``diff --cc`` /
+    ``diff --combined`` 头只带一个路径。两类头对空格都不加引号，只有特殊
+    字符（非 ASCII 等）才引号包裹。
+    """
+
+    if line.startswith("diff --git "):
+        rest = line[len("diff --git ") :]
+        if rest.startswith('"'):
+            try:
+                tokens = shlex.split(rest)
+            except ValueError:
+                return None
+            if len(tokens) != 2:
+                return None
+            return _strip_ab_prefix(tokens[0]), _strip_ab_prefix(tokens[1])
+        index = rest.rfind(" b/")
+        if index < 0 or not rest.startswith("a/"):
             return None
-        if len(tokens) != 2:
+        return (
+            _strip_ab_prefix(rest[:index]),
+            _strip_ab_prefix(rest[index + 1 :]),
+        )
+    for prefix in ("diff --cc ", "diff --combined "):
+        if not line.startswith(prefix):
+            continue
+        rest = line[len(prefix) :]
+        if rest.startswith('"'):
+            try:
+                tokens = shlex.split(rest)
+            except ValueError:
+                return None
+        else:
+            tokens = rest.split()
+        if not tokens:
             return None
-        return _strip_ab_prefix(tokens[0]), _strip_ab_prefix(tokens[1])
-    index = rest.rfind(" b/")
-    if index < 0 or not rest.startswith("a/"):
-        return None
-    return _strip_ab_prefix(rest[:index]), _strip_ab_prefix(rest[index + 1 :])
+        # 候选含原样整串：空格切分不改变「段名 / 后缀」判定的敏感性。
+        candidates = (*tokens, rest)
+        return tuple(
+            _strip_ab_prefix(candidate) for candidate in candidates
+        )
+    return None
 
 
 def _filter_patch(text: str) -> str:
-    """丢弃 git 历史中命中敏感路径策略的文件片段（HEAD 祖先链同样过滤）。"""
+    """丢弃 patch 中命中敏感路径策略的文件片段。
+
+    适用于 ``git diff`` / ``git show`` 的常规（``diff --git``）与 combined
+    diff（``diff --cc`` / ``diff --combined``；合并提交与冲突态）。
+    """
 
     kept: list[str] = []
     section: list[str] | None = None
@@ -730,7 +768,7 @@ def _filter_patch(text: str) -> str:
             kept.append(_PATCH_SECTION_MARKER)
 
     for line in text.split("\n"):
-        if line.startswith("diff --git "):
+        if line.startswith(_DIFF_HEADER_PREFIXES):
             flush()
             paths = _diff_header_paths(line)
             section_kept = paths is not None and not any(
