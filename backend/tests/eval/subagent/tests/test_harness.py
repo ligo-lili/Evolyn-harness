@@ -12,9 +12,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.evidence import SQLiteEvidenceStore
 from app.models.config import ModelSettings
 from app.models.registry import ModelAdapterRegistry
 from app.models.types import ToolCall
+from app.trace import SQLiteTraceStore
 from tests.eval.subagent.harness import (
     DELEGATE_ARM,
     DIRECT_ARM,
@@ -97,6 +99,15 @@ async def test_direct_arm_smoke(tmp_path: Path) -> None:
     assert metrics.result_payload_chars == 0
     assert metrics.files_read_main == 1
     assert (outcome.workspace / "src" / "auth" / "session.py").is_file()
+    # Evidence 链路：A 臂工具输出原文落 Store（与生产同源）。
+    store = SQLiteEvidenceStore(outcome.workspace.parent / "eval.db")
+    await store.initialize()
+    hits = await store.search(
+        conversation_id=f"eval-{_T01.id}-{DIRECT_ARM}",
+        query="validate_session",
+        tool_name="read_file",
+    )
+    assert hits, "direct arm read_file output should be archived as evidence"
 
 
 async def test_delegate_arm_smoke(tmp_path: Path) -> None:
@@ -195,3 +206,19 @@ async def test_delegate_arm_smoke(tmp_path: Path) -> None:
     # 但子代理消耗计入全量账（record_finding + submit 两次调用）。
     assert metrics.sub_input_tokens == SUB_RECORD_TOKENS + 999_999
     assert metrics.all_chargeable_tokens > metrics.main_chargeable_tokens
+    # Evidence 链路：子代理发现有原文可回读（主 Agent 可用 evidence_read）。
+    store = SQLiteEvidenceStore(outcome.workspace.parent / "eval.db")
+    await store.initialize()
+    hits = await store.search(
+        conversation_id=f"eval-{_T01.id}-{DELEGATE_ARM}",
+        query="validate_session",
+        tool_name="record_finding",
+    )
+    assert hits, "subagent finding should be archived as evidence"
+    # 子代理 Trace：调查过程事件落库（供离线复盘）。
+    trace_store = SQLiteTraceStore(outcome.workspace.parent / "eval.db")
+    await trace_store.initialize()
+    payloads = await trace_store.load_event_payloads_for_conversation(
+        f"eval-{_T01.id}-{DELEGATE_ARM}"
+    )
+    assert payloads, "subagent trace events should be persisted"

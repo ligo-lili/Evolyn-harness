@@ -4,13 +4,17 @@
 - **B 臂（delegate）**：现行 V1 委派——注册 ``subagent_run``（deferred，
   与 ``app/application.py`` 的装配一致），主 Agent 自行决定是否委派。
 
-两臂共用同一套装配参数（系统提示词、步数上限、工具集、关闭 Run Budget），
-唯一差异是 B 臂多一个委派工具；这样比较的是「有无委派能力」而不是装配
-差异。本模块只负责运行与采集，不做判定（判定见 ``reporting.py``）。
+两臂共用同一套装配参数（系统提示词、步数上限、工具集、Evidence 链路、
+关闭 Run Budget），唯一差异是 B 臂多一个委派工具；这样比较的是「有无委派
+能力」而不是装配差异。本模块只负责运行与采集，不做判定（判定见
+``reporting.py``）。
 
 评测环境刻意收窄：仅保留只读探索工具（read_file / list_files /
 get_current_time），移除写入、shell、网络工具，避免评测改变工作区或产生
-额外费用。Run Budget 关闭：评测关注自然完成下的成本，而不是预算截断行为。
+额外费用。Evidence 链路与生产同源：工具输出与子代理发现原文落
+``root/eval.db``，``evidence_search`` / ``evidence_read`` 按需加载
+（deferred），两臂一致。B 臂的子代理 Trace 同样写入该库，便于复盘调查
+过程。Run Budget 关闭：评测关注自然完成下的成本，而不是预算截断行为。
 """
 
 from __future__ import annotations
@@ -25,6 +29,11 @@ from app.agent.result import AgentResult
 from app.agent.runtime import AgentRuntime
 from app.application import DEFAULT_SYSTEM_PROMPT
 from app.context import ContextManager, ContextSettings
+from app.evidence import (
+    EvidenceRecorder,
+    SQLiteEvidenceStore,
+    register_evidence_tools,
+)
 from app.models.registry import ModelAdapterRegistry
 from app.subagent import (
     SUBAGENT_TOOL_NAME,
@@ -34,6 +43,7 @@ from app.subagent import (
 )
 from app.tools import ToolExecutor, build_builtin_tool_registry
 from app.tools.registry import ToolRegistry
+from app.trace import SQLiteTraceStore
 
 from .fixtures import write_fixture_repo
 from .tasks import EvalTask
@@ -108,7 +118,19 @@ async def run_task(
     workspace = root / "workspace"
     write_fixture_repo(workspace)
     tool_registry = build_eval_tool_registry(workspace)
-    tool_executor = ToolExecutor(tool_registry)
+
+    # 与生产装配同源的 Evidence 链路：工具输出与子代理发现原文落 Store，
+    # evidence_search / evidence_read 按需加载（deferred），两臂一致。
+    database = root / "eval.db"
+    evidence_store = SQLiteEvidenceStore(database)
+    await evidence_store.initialize()
+    register_evidence_tools(tool_registry, evidence_store)
+    evidence_recorder = EvidenceRecorder(evidence_store)
+    tool_executor = ToolExecutor(tool_registry, output_recorder=evidence_recorder)
+
+    # 子代理 Trace（仅 B 臂使用）：调查过程可复盘，主 Run 指标不受影响。
+    trace_store = SQLiteTraceStore(database)
+    await trace_store.initialize()
 
     run_finalizers: tuple = ()
     parallel_tool_names: frozenset[str] = frozenset()
@@ -121,6 +143,7 @@ async def run_task(
             model=config.model,
             workspace_root=workspace,
             settings=config.subagent_settings or SubagentSettings(_env_file=None),
+            trace_store=trace_store,
         )
         # 与 app/application.py 一致：deferred 注册，主 Agent 先 tool_search。
         tool_registry.register(SubAgentTool(runner), deferred=True)
