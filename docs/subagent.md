@@ -290,11 +290,12 @@ Memory Policy 消息不转发。父上下文没有记忆时如实注入空并记
 - 能力目录不含写操作与 Shell（`write_repo` / `run_shell` 属后续版本）；
   不接入 MCP 动态工具；
 - 子代理与主 Agent 默认使用同一 provider / model（复核模型可单独指定）；
-- Go/No-go 评测（v3 §9）已跑批：2026-10-16 完成两轮真实模型 A/B 评测
-  （`backend/tests/eval/subagent/reports/`），均为 **No-go**（两轮主上下文
-  均未下降，并分别叠加安全子集缺关键结论 / 成本超限，详见报告）；强委派
-  变体报告（`report_subagent_20261016_B2strong.*`）的运行入口未入库，
-  当前 `run_live.py` 无法复现该轮。
+- Go/No-go 评测（v3 §9）已跑批：2026-10-16 完成两轮真实模型 A/B 评测，
+  均为 **No-go**（两轮主上下文均未下降，并分别叠加安全子集缺关键结论 /
+  成本超限）；强委派变体报告（`report_subagent_20261016_B2strong.*`）的
+  运行入口未入库。评测实现与报告（原位于 `backend/tests/eval/subagent/`）
+  已于 2026-10-17 移除（评测线终止）；下列各轮引用均为历史记录，原始
+  内容见对应提交。
 - 2026-10-17 处置（按 v3 §10「回头改委派触发规则」校准）：先修复已知
   边界（预算预留 / 裁剪、behavior 复核、覆盖提示）并跑 T09 / T20 小范围
   live 试跑（`reports/trial_20261017_T09_T20.*`）；随后把主 Agent 委派
@@ -385,7 +386,8 @@ Memory Policy 消息不转发。父上下文没有记忆时如实注入空并记
 - 2026-10-17（digest 套件设计定稿与实现，机制试跑前）：两轮 No-go 的共同
   结论「触发口径不是瓶颈，任务量级才是」推动新增第三个任务面——**通读
   消化类（digest）**：答案依赖大段原文语义、无法被 grep 收窄。设计草案
-  提交于 `8779bb5`（`backend/tests/eval/subagent/digest_suite_draft.md`），
+  提交于 `8779bb5`（原 `backend/tests/eval/subagent/digest_suite_draft.md`，
+  已随评测目录移除）；
   经评审批准后按预登记流程实现：夹具新增 `specs/` 规格语料包（35 份文档
   ≈ 3.1 万字符，`digest_corpus.py` 单列维护），任务集新增 D01/D02/D03
   （新分类 `digest_synthesis`，`SUITES` 增 `digest`），护栏测试锁定 8 处
@@ -464,6 +466,4 @@ tier 上限）、提交协议与格式重试、隔离与结构化回流、预算
 （判定 / 失败降级 / 用量回流）、已覆盖提示（轻量去重）、续跑句柄、越权 3
 次终止、敏感路径拒绝与计数、密钥脱敏（已知模式 / 高熵 / 结构保持）、git
 历史片段过滤、注入嫌疑终止、数据分隔符包装、并发上限与用量回流、取消传播、
-Trace / Evidence 持久化（证据来源标记）、Application 装配。评测夹具与指标
-在 `backend/tests/eval/subagent/`（A/B 对照、主上下文占用 / 正确率 / 成本
-口径），真实模型跑批需先确认 API 预算。
+Trace / Evidence 持久化（证据来源标记）、Application 装配。
