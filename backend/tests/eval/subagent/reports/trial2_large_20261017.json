@@ -1,0 +1,500 @@
+{
+  "meta": {
+    "generated_at": "2026-10-17T09:31:15+00:00",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "task_count": 4,
+    "runs_per_task": 1,
+    "arms": [
+      "direct",
+      "delegate"
+    ],
+    "run_root": "C:\\Users\\cjy\\AppData\\Local\\Temp\\evolyn-subagent-eval-493a_r8k",
+    "command": "C:\\agents\\Evolyn\\backend\\tests\\eval\\subagent\\run_live.py --arm both --task T09-unused-config --task L02-deprecated-unused --task L04-checkout-call-chain --task L05-import-time-connections --runs 1 --provider deepseek --model deepseek-v4-flash --price-input 0.14 --price-output 0.28 --allow-no-go --out tests/eval/subagent/reports/trial2_large_20261017.md"
+  },
+  "thresholds": {
+    "min_context_reduction": 0.5,
+    "max_correctness_drop": 0.05,
+    "max_cost_ratio": 1.3
+  },
+  "cost_basis": "api_cost",
+  "prices": {
+    "input_per_million": 0.14,
+    "output_per_million": 0.28,
+    "currency": "USD"
+  },
+  "verdict": {
+    "result": "No-go",
+    "passed": false,
+    "checks": [
+      {
+        "name": "上下文峰值降幅",
+        "passed": false,
+        "detail": "A 均值 13,451 → B 均值 10,618，降幅 21.1%（要求 ≥ 50%；口径：主 Run 最大 prompt token，逐任务先折叠再跨任务平均）"
+      },
+      {
+        "name": "正确率下降幅度",
+        "passed": true,
+        "detail": "关键结论正确率 A 64.3% → B 100.0%，下降 -35.7pp（要求 ≤ 5pp；严格通过率 A 50% / B 100%，仅作参考）"
+      },
+      {
+        "name": "安全关键错误",
+        "passed": true,
+        "detail": "安全子集关键错误 A 0 → B 0（要求 B ≤ A）"
+      },
+      {
+        "name": "总成本比值",
+        "passed": false,
+        "detail": "口径 API 成本（USD）：A 0.1308 → B 0.1722，比值 1.32（要求 ≤ 1.3）"
+      }
+    ]
+  },
+  "summary": {
+    "context_mean_direct": 13451.0,
+    "context_mean_delegate": 10617.5,
+    "context_reduction": 0.2106534830124155,
+    "cost_direct": 0.13076210000000002,
+    "cost_delegate": 0.17217466,
+    "cost_ratio": 1.3167015519022713,
+    "direct": {
+      "run_count": 4,
+      "ok_count": 2,
+      "strict_pass_rate": 0.5,
+      "key_fact_rate": 0.6429,
+      "security_critical_errors": 0,
+      "security_key_fact_rate": 0.0,
+      "peak_mean": 13451.0,
+      "peak_max": 23057,
+      "main_chargeable_total": 592972,
+      "chargeable_total": 592972,
+      "payload_chars_total": 0,
+      "subagent_calls_total": 0,
+      "tool_search_total": 32,
+      "subagent_attempts_total": 0,
+      "duration_total_s": 267.5
+    },
+    "delegate": {
+      "run_count": 4,
+      "ok_count": 4,
+      "strict_pass_rate": 1.0,
+      "key_fact_rate": 1.0,
+      "security_critical_errors": 0,
+      "security_key_fact_rate": 0.0,
+      "peak_mean": 10617.5,
+      "peak_max": 12428,
+      "main_chargeable_total": 85055,
+      "chargeable_total": 530219,
+      "payload_chars_total": 14596,
+      "subagent_calls_total": 4,
+      "tool_search_total": 4,
+      "subagent_attempts_total": 6,
+      "duration_total_s": 343.2
+    }
+  },
+  "tasks": [
+    {
+      "task_id": "T09-unused-config",
+      "category": "config_trace",
+      "direct": [
+        {
+          "task_id": "T09-unused-config",
+          "task_name": "未使用的配置项",
+          "category": "config_trace",
+          "arm": "direct",
+          "run_index": 1,
+          "ok": false,
+          "stop_reason": "max_steps",
+          "error": "maximum step limit (40) reached",
+          "duration_s": 106.406,
+          "steps": 40,
+          "tool_calls": 186,
+          "main_peak_prompt_tokens": 12668,
+          "main_last_prompt_tokens": 3615,
+          "main_mean_prompt_tokens": 8229.2,
+          "prompt_sample_count": 40,
+          "main_input_tokens": 329170,
+          "main_output_tokens": 15251,
+          "main_model_calls": 40,
+          "main_chargeable_tokens": 239077,
+          "sub_input_tokens": 0,
+          "sub_output_tokens": 0,
+          "sub_model_calls": 0,
+          "sub_chargeable_tokens": 0,
+          "all_chargeable_tokens": 239077,
+          "subagent_calls": 0,
+          "result_payload_chars": 0,
+          "expand_chars": 0,
+          "files_read_main": 33,
+          "main_tool_search_calls": 17,
+          "main_subagent_attempts": 0,
+          "expected_files": 2,
+          "answer": {
+            "matched": [],
+            "missing": [
+              "unused"
+            ],
+            "critical_missing": [],
+            "key_fact_total": 1,
+            "key_fact_matched": 0,
+            "key_fact_rate": 0.0,
+            "passed": false
+          }
+        }
+      ],
+      "delegate": [
+        {
+          "task_id": "T09-unused-config",
+          "task_name": "未使用的配置项",
+          "category": "config_trace",
+          "arm": "delegate",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 145.035,
+          "steps": 9,
+          "tool_calls": 18,
+          "main_peak_prompt_tokens": 12428,
+          "main_last_prompt_tokens": 9087,
+          "main_mean_prompt_tokens": 7736.8,
+          "prompt_sample_count": 9,
+          "main_input_tokens": 69631,
+          "main_output_tokens": 5184,
+          "main_model_calls": 9,
+          "main_chargeable_tokens": 40127,
+          "sub_input_tokens": 454388,
+          "sub_output_tokens": 16770,
+          "sub_model_calls": 42,
+          "sub_chargeable_tokens": 275702,
+          "all_chargeable_tokens": 315829,
+          "subagent_calls": 2,
+          "result_payload_chars": 5139,
+          "expand_chars": 0,
+          "files_read_main": 11,
+          "main_tool_search_calls": 2,
+          "main_subagent_attempts": 3,
+          "expected_files": 2,
+          "answer": {
+            "matched": [
+              "unused"
+            ],
+            "missing": [],
+            "critical_missing": [],
+            "key_fact_total": 1,
+            "key_fact_matched": 1,
+            "key_fact_rate": 1.0,
+            "passed": true
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "L02-deprecated-unused",
+      "category": "negative_proof",
+      "direct": [
+        {
+          "task_id": "L02-deprecated-unused",
+          "task_name": "Deprecated 无调用方函数",
+          "category": "negative_proof",
+          "arm": "direct",
+          "run_index": 1,
+          "ok": false,
+          "stop_reason": "max_steps",
+          "error": "maximum step limit (40) reached",
+          "duration_s": 111.312,
+          "steps": 40,
+          "tool_calls": 242,
+          "main_peak_prompt_tokens": 23057,
+          "main_last_prompt_tokens": 6161,
+          "main_mean_prompt_tokens": 9649.2,
+          "prompt_sample_count": 40,
+          "main_input_tokens": 385967,
+          "main_output_tokens": 18273,
+          "main_model_calls": 40,
+          "main_chargeable_tokens": 264208,
+          "sub_input_tokens": 0,
+          "sub_output_tokens": 0,
+          "sub_model_calls": 0,
+          "sub_chargeable_tokens": 0,
+          "all_chargeable_tokens": 264208,
+          "subagent_calls": 0,
+          "result_payload_chars": 0,
+          "expand_chars": 0,
+          "files_read_main": 69,
+          "main_tool_search_calls": 13,
+          "main_subagent_attempts": 0,
+          "expected_files": 10,
+          "answer": {
+            "matched": [],
+            "missing": [
+              "orders",
+              "permissions",
+              "pricing",
+              "tokens"
+            ],
+            "critical_missing": [],
+            "key_fact_total": 4,
+            "key_fact_matched": 0,
+            "key_fact_rate": 0.0,
+            "passed": false
+          }
+        }
+      ],
+      "delegate": [
+        {
+          "task_id": "L02-deprecated-unused",
+          "task_name": "Deprecated 无调用方函数",
+          "category": "negative_proof",
+          "arm": "delegate",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 77.243,
+          "steps": 7,
+          "tool_calls": 15,
+          "main_peak_prompt_tokens": 11711,
+          "main_last_prompt_tokens": 11711,
+          "main_mean_prompt_tokens": 7004.4,
+          "prompt_sample_count": 7,
+          "main_input_tokens": 49031,
+          "main_output_tokens": 4224,
+          "main_model_calls": 7,
+          "main_chargeable_tokens": 25223,
+          "sub_input_tokens": 168693,
+          "sub_output_tokens": 9713,
+          "sub_model_calls": 16,
+          "sub_chargeable_tokens": 53606,
+          "all_chargeable_tokens": 78829,
+          "subagent_calls": 1,
+          "result_payload_chars": 5084,
+          "expand_chars": 0,
+          "files_read_main": 10,
+          "main_tool_search_calls": 1,
+          "main_subagent_attempts": 2,
+          "expected_files": 10,
+          "answer": {
+            "matched": [
+              "orders",
+              "permissions",
+              "pricing",
+              "tokens"
+            ],
+            "missing": [],
+            "critical_missing": [],
+            "key_fact_total": 4,
+            "key_fact_matched": 4,
+            "key_fact_rate": 1.0,
+            "passed": true
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "L04-checkout-call-chain",
+      "category": "call_chain",
+      "direct": [
+        {
+          "task_id": "L04-checkout-call-chain",
+          "task_name": "结算确认调用链",
+          "category": "call_chain",
+          "arm": "direct",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 33.225,
+          "steps": 14,
+          "tool_calls": 28,
+          "main_peak_prompt_tokens": 10526,
+          "main_last_prompt_tokens": 10470,
+          "main_mean_prompt_tokens": 8227.6,
+          "prompt_sample_count": 14,
+          "main_input_tokens": 115187,
+          "main_output_tokens": 4933,
+          "main_model_calls": 14,
+          "main_chargeable_tokens": 81208,
+          "sub_input_tokens": 0,
+          "sub_output_tokens": 0,
+          "sub_model_calls": 0,
+          "sub_chargeable_tokens": 0,
+          "all_chargeable_tokens": 81208,
+          "subagent_calls": 0,
+          "result_payload_chars": 0,
+          "expand_chars": 0,
+          "files_read_main": 13,
+          "main_tool_search_calls": 2,
+          "main_subagent_attempts": 0,
+          "expected_files": 8,
+          "answer": {
+            "matched": [
+              "handler",
+              "service",
+              "tax",
+              "pay",
+              "legacy"
+            ],
+            "missing": [],
+            "critical_missing": [],
+            "key_fact_total": 5,
+            "key_fact_matched": 5,
+            "key_fact_rate": 1.0,
+            "passed": true
+          }
+        }
+      ],
+      "delegate": [
+        {
+          "task_id": "L04-checkout-call-chain",
+          "task_name": "结算确认调用链",
+          "category": "call_chain",
+          "arm": "delegate",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 106.875,
+          "steps": 5,
+          "tool_calls": 9,
+          "main_peak_prompt_tokens": 10922,
+          "main_last_prompt_tokens": 10922,
+          "main_mean_prompt_tokens": 6910.8,
+          "prompt_sample_count": 5,
+          "main_input_tokens": 34554,
+          "main_output_tokens": 2943,
+          "main_model_calls": 5,
+          "main_chargeable_tokens": 11897,
+          "sub_input_tokens": 323912,
+          "sub_output_tokens": 14920,
+          "sub_model_calls": 30,
+          "sub_chargeable_tokens": 115856,
+          "all_chargeable_tokens": 127753,
+          "subagent_calls": 1,
+          "result_payload_chars": 4373,
+          "expand_chars": 0,
+          "files_read_main": 6,
+          "main_tool_search_calls": 1,
+          "main_subagent_attempts": 1,
+          "expected_files": 8,
+          "answer": {
+            "matched": [
+              "handler",
+              "service",
+              "tax",
+              "pay",
+              "legacy"
+            ],
+            "missing": [],
+            "critical_missing": [],
+            "key_fact_total": 5,
+            "key_fact_matched": 5,
+            "key_fact_rate": 1.0,
+            "passed": true
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "L05-import-time-connections",
+      "category": "repo_audit",
+      "direct": [
+        {
+          "task_id": "L05-import-time-connections",
+          "task_name": "导入期连接盘点",
+          "category": "repo_audit",
+          "arm": "direct",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 16.582,
+          "steps": 5,
+          "tool_calls": 12,
+          "main_peak_prompt_tokens": 7553,
+          "main_last_prompt_tokens": 7553,
+          "main_mean_prompt_tokens": 4333.8,
+          "prompt_sample_count": 5,
+          "main_input_tokens": 21669,
+          "main_output_tokens": 2554,
+          "main_model_calls": 5,
+          "main_chargeable_tokens": 8479,
+          "sub_input_tokens": 0,
+          "sub_output_tokens": 0,
+          "sub_model_calls": 0,
+          "sub_chargeable_tokens": 0,
+          "all_chargeable_tokens": 8479,
+          "subagent_calls": 0,
+          "result_payload_chars": 0,
+          "expand_chars": 0,
+          "files_read_main": 11,
+          "main_tool_search_calls": 0,
+          "main_subagent_attempts": 0,
+          "expected_files": 8,
+          "answer": {
+            "matched": [
+              "analytics",
+              "storage",
+              "search",
+              "risk"
+            ],
+            "missing": [],
+            "critical_missing": [],
+            "key_fact_total": 4,
+            "key_fact_matched": 4,
+            "key_fact_rate": 1.0,
+            "passed": true
+          }
+        }
+      ],
+      "delegate": [
+        {
+          "task_id": "L05-import-time-connections",
+          "task_name": "导入期连接盘点",
+          "category": "repo_audit",
+          "arm": "delegate",
+          "run_index": 1,
+          "ok": true,
+          "stop_reason": "final_answer",
+          "error": null,
+          "duration_s": 14.021,
+          "steps": 4,
+          "tool_calls": 11,
+          "main_peak_prompt_tokens": 7409,
+          "main_last_prompt_tokens": 7409,
+          "main_mean_prompt_tokens": 4330.5,
+          "prompt_sample_count": 4,
+          "main_input_tokens": 17322,
+          "main_output_tokens": 2390,
+          "main_model_calls": 4,
+          "main_chargeable_tokens": 7808,
+          "sub_input_tokens": 0,
+          "sub_output_tokens": 0,
+          "sub_model_calls": 0,
+          "sub_chargeable_tokens": 0,
+          "all_chargeable_tokens": 7808,
+          "subagent_calls": 0,
+          "result_payload_chars": 0,
+          "expand_chars": 0,
+          "files_read_main": 10,
+          "main_tool_search_calls": 0,
+          "main_subagent_attempts": 0,
+          "expected_files": 8,
+          "answer": {
+            "matched": [
+              "analytics",
+              "storage",
+              "search",
+              "risk"
+            ],
+            "missing": [],
+            "critical_missing": [],
+            "key_fact_total": 4,
+            "key_fact_matched": 4,
+            "key_fact_rate": 1.0,
+            "passed": true
+          }
+        }
+      ]
+    }
+  ]
+}
