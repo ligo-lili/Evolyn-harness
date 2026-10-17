@@ -16,8 +16,8 @@
 - 预登记双套件：``--suite core``（20 个基础探索任务，对照面）与
   ``--suite large``（9 个大范围盘点/负向证明/跨模块链任务，委派机制的
   工作区间）分别跑批、分别归档；评分口径与门槛数字不随结果调整。
-- A 臂 = 主 Agent 直接探索（基线）；B 臂 = 现行 V1 委派（``subagent_run``，
-  deferred 注册，与生产装配一致）。
+- A 臂 = 无子代理的产品反事实（``BASE_SYSTEM_PROMPT``，工具集与 B 臂一致）；
+  B 臂 = 现行 V1 委派（``subagent_run``，deferred 注册，与生产装配一致）。
 - ``--runs N``：每条任务每臂运行 N 次，报告按任务折叠（波动大的题集建议 3）。
 - 未提供 ``--price-input/--price-output`` 时，成本门槛使用 chargeable token
   口径，报告会显式标注。
