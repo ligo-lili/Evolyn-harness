@@ -477,6 +477,108 @@ async def test_budget_warning_then_closing_marks_truncated(
     assert completed.subagent_truncated is True
 
 
+async def test_closing_textual_submit_variant_gets_bounded_repair(
+    build_harness,
+) -> None:
+    """收口时模型把 submit_result 输出为文本协议：移除污染消息、允许一次
+    修复重试，随后以结构化提交成功交付（回归：曾被静默当作最终回答）。"""
+
+    settings = SubagentSettings(
+        _env_file=None,
+        token_budget=10_000,
+        max_steps=12,
+        max_tool_rounds=12,
+        allow_repo_root=True,
+    )
+    responses: list = [model_response(usage=usage(10), tool_calls=(_delegate_call(),))]
+    responses.append(
+        model_response(
+            usage=usage(20),
+            tool_calls=(
+                tool_call(
+                    "record_finding",
+                    {
+                        "type": "exists",
+                        "claim": "notes-0.txt 存在且内容已核对。",
+                        "locations": [
+                            {"path": "notes-0.txt", "lines": "1", "symbol": "x"}
+                        ],
+                    },
+                    call_id="f0",
+                ),
+            ),
+        )
+    )
+    read_tokens = [3000, 3000, 2480, 1000]
+    for index, tokens in enumerate(read_tokens):
+        responses.append(
+            model_response(
+                usage=usage(tokens),
+                tool_calls=(
+                    tool_call(
+                        "read_file",
+                        {"path": f"notes-{index}.txt"},
+                        call_id=f"r{index}",
+                    ),
+                ),
+            )
+        )
+    # 收口请求：模型以文本化协议输出提交（实测变形：空格 + 缺 tool_ 前缀）。
+    responses.append(
+        model_response(
+            usage=usage(100),
+            content=(
+                '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke '
+                'name="submit_result">\n<｜｜DSML｜｜ parameter '
+                'name="summary" string="true">笔记已核对'
+            ),
+        )
+    )
+    # 修复重试：结构化提交成功交付。
+    responses.append(
+        model_response(
+            usage=usage(100),
+            tool_calls=(
+                tool_call(
+                    "submit_result",
+                    {"summary": "笔记已核对", "not_covered": []},
+                    call_id="s1",
+                ),
+            ),
+        )
+    )
+    responses.append(model_response(usage=usage(10), content="调查完成。"))
+
+    harness = build_harness(
+        responses,
+        settings=settings,
+        workspace_files={f"notes-{index}.txt": "x" for index in range(4)},
+    )
+    result = await harness.runtime.run("q", event_handler=harness.events)
+
+    payload = json.loads(result.tool_calls[0].result.output)
+    assert payload["submitted"] is True
+    assert payload["summary"] == "笔记已核对"
+    assert payload["status"] == "partial"
+    assert payload["truncated"] is True
+
+    sub_requests = harness.sub_requests()
+    assert len(sub_requests) == 7
+
+    # 收口请求只保留交付工具；修复重试带上「结构化 tool_calls」提示，
+    # 且移除污染消息后不再携带文本协议。
+    assert [tool.name for tool in sub_requests[5].tools] == ["submit_result"]
+    assert [tool.name for tool in sub_requests[6].tools] == ["submit_result"]
+    repair_text = "\n".join(
+        message.content or "" for message in sub_requests[6].messages
+    )
+    assert "结构化 tool_calls" in repair_text
+    assert all(
+        '<｜｜DSML｜｜ calls>' not in (message.content or "")
+        for message in sub_requests[6].messages
+    )
+
+
 async def test_budget_hard_limit_stops_sub_run(build_harness) -> None:
     settings = SubagentSettings(
         _env_file=None,

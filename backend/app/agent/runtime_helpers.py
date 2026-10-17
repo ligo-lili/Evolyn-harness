@@ -69,16 +69,23 @@ def computer_verification_status(output: object) -> str | None:
 
 
 def looks_like_textual_tool_call(content: str | None) -> bool:
-    """识别被模型错误输出为普通文本的常见工具协议标记。"""
+    """识别被模型错误输出为普通文本的常见工具协议标记。
+
+    标记常带变形：关键字前插入空白、``tool_`` 前缀丢失（全角竖线后直接
+    跟 `` calls``、`` invoke`` 等）。统一去除空白与零宽分隔符后再匹配，
+    避免这类污染文本被当作正常回答收下——它没有被执行，不能据此判定
+    Run 已完成。
+    """
 
     if not content:
         return False
-    lowered = content.lower()
+    compact = re.sub(r"[\s\u200b\u2581]+", "", content.lower())
     return any(
-        marker in lowered
+        marker in compact
         for marker in (
             "<tool_calls",
             "<｜｜dsml｜｜tool_calls",
+            "<｜｜dsml｜｜calls",
             "<｜｜dsml｜｜invoke",
         )
     )

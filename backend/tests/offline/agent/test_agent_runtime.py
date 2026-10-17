@@ -610,6 +610,43 @@ async def test_runtime_retries_textual_tool_protocol_as_structured_response() ->
 
 
 @pytest.mark.asyncio
+async def test_runtime_retries_spaced_textual_tool_protocol_variant() -> None:
+    """机制试跑实测变形（关键字前空格、缺 tool_ 前缀）同样按污染修复。"""
+
+    textual_protocol = (
+        '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="count">2'
+    )
+    registry, adapter = fake_registry(
+        [
+            model_response(content=textual_protocol),
+            model_response(content="已直接完成回答。"),
+        ]
+    )
+
+    result = await AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="fake",
+    ).run("请回答")
+
+    assert result.ok is True
+    assert result.steps == 2
+    assert result.content == "已直接完成回答。"
+    assert len(adapter.requests) == 2
+    assert "结构化 tool_calls" in (
+        adapter.requests[1].messages[-1].content or ""
+    )
+    assert all(
+        textual_protocol not in (message.content or "")
+        for message in adapter.requests[1].messages
+    )
+    assert all(
+        textual_protocol not in (message.content or "")
+        for message in result.messages
+    )
+
+
+@pytest.mark.asyncio
 async def test_runtime_rejects_repeated_textual_tool_protocol() -> None:
     """连续两次输出文本工具协议时以 model_error 收口，不制造假成功。"""
 
