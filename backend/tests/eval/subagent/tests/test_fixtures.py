@@ -193,3 +193,21 @@ def test_tax_rate_flow_files_exist() -> None:
     checkout = FIXTURE_FILES["src/modules/checkout/service.py"]
     assert "calculate_tax_for_order" in checkout
     assert "charge_card" in checkout
+
+
+def test_fixture_byte_scale_supports_context_pressure() -> None:
+    """夹具规模必须支撑「大范围探索」：单文件字节接近真实仓库量级。
+
+    回归护栏：曾出现「文件数多但总字节极小」（95 个文件合计约 3.2 万字符）
+    的夹具，全仓阅读也不产生真实上下文压力，上下文指标失去区分度。
+    """
+
+    total_chars = sum(len(content) for content in FIXTURE_FILES.values())
+    assert total_chars >= 100_000, total_chars
+    py_sizes = [
+        len(content)
+        for relative, content in FIXTURE_FILES.items()
+        if relative.endswith(".py")
+    ]
+    mean_py = sum(py_sizes) / len(py_sizes)
+    assert mean_py >= 900, mean_py

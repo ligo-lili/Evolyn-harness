@@ -2,8 +2,8 @@
 
 结构：
 
-- ``tasks.py``      29 个真实代码探索任务 + 标准答案（core 20 + large 9，见 README 双套件）
-- ``fixtures.py``   夹具仓库（shop-auth-sandbox）的确定性生成（95 个文件）
+- ``tasks.py``      29 个真实代码探索任务 + 标准答案（core 20 + large 9）
+- ``fixtures.py``   夹具仓库（shop-auth-sandbox）确定性生成（107 文件 / 10 万字符）
 - ``harness.py``    A（主 Agent 直接探索）/ B（委派子 Agent）两臂装配与运行
 - ``metrics.py``    五维指标采集（主上下文峰值 / 累计消耗 / 回传大小 / 成本 / 正确率）
 - ``reporting.py``  Go/No-go 联合判定与报告渲染

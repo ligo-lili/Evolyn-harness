@@ -8,7 +8,7 @@
 ```text
 subagent/
 ├── tasks.py       29 个真实代码探索任务 + 标准答案（core 20 + large 9）
-├── fixtures.py    夹具仓库 shop-auth-sandbox（确定性生成，95 个文件）
+├── fixtures.py    夹具仓库 shop-auth-sandbox（确定性生成，107 个文件、约 10 万字符）
 ├── harness.py     A（直接探索）/ B（现行 V1 委派）两臂装配与运行
 ├── metrics.py     五维指标采集
 ├── reporting.py   联合判定（Go/No-go）与报告渲染
