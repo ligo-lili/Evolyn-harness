@@ -18,11 +18,12 @@ def test_task_set_is_valid() -> None:
 
 
 def test_task_count_and_unique_ids() -> None:
-    assert len(TASKS) == 29
+    assert len(TASKS) == 32
     ids = [task.id for task in TASKS]
     assert len(set(ids)) == len(ids)
     assert sum(1 for task in TASKS if task.suite == "core") == 20
     assert sum(1 for task in TASKS if task.suite == "large") == 9
+    assert sum(1 for task in TASKS if task.suite == "digest") == 3
 
 
 def test_all_categories_covered() -> None:
@@ -35,6 +36,17 @@ def test_large_suite_covers_new_categories() -> None:
     assert len(large) == 9
     covered = {task.category for task in large}
     assert {"repo_audit", "negative_proof"} <= covered
+
+
+def test_digest_suite_tasks() -> None:
+    digest = select_tasks(suites=("digest",))
+    assert len(digest) == 3
+    assert all(task.suite == "digest" for task in digest)
+    covered = {task.category for task in digest}
+    assert covered == {"digest_synthesis"}
+    for task in digest:
+        assert len(task.key_facts) >= 4, task.id
+        assert task.scope_hint[0] == "specs/", task.id
 
 
 def test_select_by_suite() -> None:

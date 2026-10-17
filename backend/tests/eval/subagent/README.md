@@ -7,8 +7,9 @@
 
 ```text
 subagent/
-├── tasks.py       29 个真实代码探索任务 + 标准答案（core 20 + large 9）
-├── fixtures.py    夹具仓库 shop-auth-sandbox（确定性生成，107 个文件、约 10 万字符）
+├── tasks.py       32 个真实代码探索任务 + 标准答案（core 20 + large 9 + digest 3）
+├── fixtures.py    夹具仓库 shop-auth-sandbox（确定性生成，142 个文件、约 14 万字符）
+├── digest_corpus.py  digest 套件 specs/ 语料（35 份文档；护栏测试锁定植入事实）
 ├── harness.py     A（直接探索）/ B（现行 V1 委派）两臂装配与运行
 ├── metrics.py     五维指标采集
 ├── reporting.py   联合判定（Go/No-go）与报告渲染
@@ -17,16 +18,20 @@ subagent/
 └── reports/       跑批产出的报告（.md + .json）
 ```
 
-## 双套件（预登记）
+## 三套件（预登记）
 
 - **core（20 个）**：v3 §9 的基础覆盖面（函数定位、跨文件调用链、配置追踪、
   异常处理、测试覆盖、跨模块依赖、安全子集），作为对照面；
 - **large（9 个）**：大范围盘点 / 负向证明 / 跨模块链，任务形态看起来就
-  需要大面积检索，是委派机制的设计工作区间。
+  需要大面积检索，是委派机制的设计工作区间；
+- **digest（3 个）**：通读消化类（`digest_synthesis` 分类；specs/ 规格语料
+  对照审计）。答案依赖大段原文语义、无法被 grep 收窄；专门检验「避免摄入
+  ≫ 委派固定开销」时隔离是否兑现。设计与植入事实见 `digest_suite_draft.md`
+  与 `digest_corpus.py`（草案提交 `8779bb5`）。
 
-两套件**分别跑批、分别归档**（`--suite core` / `--suite large`），评分口径
-与门槛数字不随跑批结果调整；结论按套件分别陈述（避免「全套件均值」把两种
-工作区间混在一起）。
+三套件**分别跑批、分别归档**（`--suite core` / `--suite large` /
+`--suite digest`），评分口径与门槛数字不随跑批结果调整；结论按套件分别
+陈述（避免「全套件均值」把两种工作区间混在一起）。
 
 ## 两臂定义
 
@@ -58,6 +63,14 @@ B 臂的子代理沿用生产默认子预算（tier 三档 quick/medium/thorough
 > 不是瓶颈，任务量级（避免摄入 ≫ 委派开销）才是隔离收益出现的前提。
 > 依对照数据现行口径回归「先探后决」（成本门槛 0.99 vs 1.38）；引用两轮
 > 对照数据须同时注明提示词口径与冻结提交。
+
+> digest 预登记（2026-10-17）：两轮 No-go 的共同结论是「触发口径不是
+> 瓶颈，任务量级才是」；digest 套件把任务量级调到相反方向（答案必须依赖
+> specs/ 原文语义、无法 grep 收窄）。任务、KeyFact、语料、expected_files
+> 实现后先做**机制试跑**（1 题 × 2 臂，仅验证「A 峰值随语料增长 / B 是否
+> 委派」，标注为设计校准、不进正式对比），再**冻结 commit**，最后正式
+> `--suite digest --runs 3`。冻结前语料规模的校准（按试跑结果）记录在
+> 冻结说明；任何情况下不调三门槛数字、不动 core / large。
 
 ## 指标口径（报告不得换口径）
 
@@ -98,11 +111,14 @@ cd backend
 .venv/bin/python -m tests.eval.subagent.run_live --arm both \
     --task T01-locate-validate-session --task T18-admin-authorization-gap
 
-# 双套件分别跑批（各 2 条命令；波动建议 --runs 3）
+# 三套件分别跑批（波动建议 --runs 3）
 .venv/bin/python -m tests.eval.subagent.run_live --arm both --suite core --runs 3 \
     --provider deepseek --model deepseek-v4-flash \
     --price-input 0.27 --price-output 1.10
 .venv/bin/python -m tests.eval.subagent.run_live --arm both --suite large --runs 3 \
+    --provider deepseek --model deepseek-v4-flash \
+    --price-input 0.27 --price-output 1.10
+.venv/bin/python -m tests.eval.subagent.run_live --arm both --suite digest --runs 3 \
     --provider deepseek --model deepseek-v4-flash \
     --price-input 0.27 --price-output 1.10
 ```

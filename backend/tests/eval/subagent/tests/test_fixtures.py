@@ -211,3 +211,147 @@ def test_fixture_byte_scale_supports_context_pressure() -> None:
     ]
     mean_py = sum(py_sizes) / len(py_sizes)
     assert mean_py >= 900, mean_py
+
+
+# ---------------------------------------------------------------------------
+# digest 套件（specs/ 语料）护栏：植入事实与任务答案一一对应
+# ---------------------------------------------------------------------------
+
+
+def _specs_files() -> dict[str, str]:
+    return {
+        relative: content
+        for relative, content in FIXTURE_FILES.items()
+        if relative.startswith("specs/")
+    }
+
+
+def test_digest_specs_present_and_scaled() -> None:
+    """digest 语料必须成规模：通读全部文档才有真实摄入压力。"""
+
+    specs = _specs_files()
+    assert len(specs) >= 30, len(specs)
+    total = sum(len(content) for content in specs.values())
+    assert total >= 25_000, total
+
+
+def test_digest_specs_index_lists_every_doc() -> None:
+    """specs/README.md 的索引必须覆盖全部文档（可检索性要求）。"""
+
+    index = FIXTURE_FILES["specs/README.md"]
+    for relative in _specs_files():
+        if relative == "specs/README.md":
+            continue
+        name = relative.removeprefix("specs/")
+        assert name in index, name
+
+
+def test_digest_d01_spec_claims_exist() -> None:
+    """D01 的 8 处规格侧声明必须在语料里原文可查。"""
+
+    expected = (
+        ("specs/modules/checkout-order-contract.md", "必须自动重试，最多 3 次"),
+        ("specs/platform/tax-calculation.md", "四舍五入到分（half-up）"),
+        ("specs/modules/notifications-delivery.md", "抛出领域异常"),
+        ("specs/modules/auth-session-policy.md", "300 秒为窗口"),
+        ("specs/platform/legacy-migration-plan.md", "均已切换至事件总线"),
+        ("specs/modules/notifications-delivery.md", "最多处理 500 个收件人"),
+        ("specs/platform/legacy-migration-plan.md", "缺省值为 3"),
+        ("specs/modules/promotions-rules.md", "必须返回 409"),
+    )
+    for relative, phrase in expected:
+        assert phrase in FIXTURE_FILES[relative], (relative, phrase)
+
+
+def test_digest_d01_code_counter_facts_hold() -> None:
+    """D01 的 8 处代码侧事实（与规格声明相反）必须保持不变。"""
+
+    checkout = FIXTURE_FILES["src/modules/checkout/service.py"]
+    assert "charge_card(" in checkout
+    assert "retry" not in checkout.lower()
+
+    payments = FIXTURE_FILES["src/integrations/payments.py"]
+    assert "_RETRYABLE_CODES" in payments
+
+    tax = FIXTURE_FILES["src/integrations/tax.py"]
+    assert 'flag_enabled("ENABLE_TAX_V2")' in tax
+    assert "return int(raw)" in tax
+
+    notifications = FIXTURE_FILES["src/modules/notifications/service.py"]
+    assert "raise ValueError" in notifications
+    assert "ValidationError" not in notifications
+
+    login = FIXTURE_FILES["src/auth/login.py"]
+    assert "窗口本身尚未" in login
+    assert "T-103" in login
+
+    audit_module = FIXTURE_FILES["src/modules/audit/service.py"]
+    assert "record_audit_v1" in audit_module
+    assert "v1 通道" in audit_module
+
+    email = FIXTURE_FILES["src/integrations/email.py"]
+    assert "_MAX_BULK = 200" in email
+    assert "recipients[:_MAX_BULK]" in email
+
+    config_v1 = FIXTURE_FILES["src/legacy/config_v1.py"]
+    assert '"retries": 0' in config_v1
+
+    promotions = FIXTURE_FILES["src/modules/promotions/service.py"]
+    assert "409" not in promotions
+    assert "_RECORDS[key] = record" in promotions
+
+
+def test_digest_d02_conflict_pairs_exist() -> None:
+    """D02 的 4 对矛盾双方文本必须各自可查（矛盾由内容语意成立）。"""
+
+    pairs = (
+        ("specs/platform/api-pagination.md", "统一为 100"),
+        ("specs/platform/audit-events.md", "200 条（全仓唯一例外）"),
+        ("specs/platform/error-mapping-policy.md", "禁止附加任何额外字段"),
+        ("specs/platform/release-checklist.md", "必须包含 `fields` 数组"),
+        ("specs/platform/release-checklist.md", "禁止在周五"),
+        ("specs/platform/legacy-migration-plan.md", "周五夜间 02:00-04:00"),
+        ("specs/platform/observability-standards.md", "90 天"),
+        ("specs/platform/security-baseline.md", "365 天"),
+    )
+    for relative, phrase in pairs:
+        assert phrase in FIXTURE_FILES[relative], (relative, phrase)
+
+
+def test_digest_d03_event_list_and_code_reality() -> None:
+    """D03：规范清单 8 项只出现在 specs/（不得混入代码）；实现侧事实与
+    矩阵一致（3 处命名不符 + 5 处缺失）。"""
+
+    audit_spec = FIXTURE_FILES["specs/platform/audit-events.md"]
+    for name in (
+        "user.login",
+        "user.logout",
+        "user.export",
+        "account.password_change",
+        "order.confirm",
+        "refund.request",
+        "review.publish",
+        "notification.dispatch",
+    ):
+        occurrences = _occurrences(name)
+        assert occurrences, name
+        assert all(
+            relative.startswith("specs/") for relative in occurrences
+        ), (name, occurrences)
+        assert name in audit_spec, name
+
+    login = FIXTURE_FILES["src/auth/login.py"]
+    assert "login_success" in login
+    routes = FIXTURE_FILES["src/api/routes.py"]
+    assert "user_exported" in routes
+    assert routes.count("audit_service.record") == 1
+    assert "handle_logout" in routes
+    user_service = FIXTURE_FILES["src/services/user_service.py"]
+    assert "password_updated" in user_service
+    for relative in (
+        "src/modules/checkout/service.py",
+        "src/modules/refunds/service.py",
+        "src/modules/reviews/service.py",
+        "src/modules/notifications/service.py",
+    ):
+        assert "audit_service" not in FIXTURE_FILES[relative], relative

@@ -7,15 +7,18 @@
         --task T01-locate-validate-session --task T05-login-call-chain
     .venv/bin/python -m tests.eval.subagent.run_live --arm both --category security
     .venv/bin/python -m tests.eval.subagent.run_live --arm both --suite large
+    .venv/bin/python -m tests.eval.subagent.run_live --arm both --suite digest
     .venv/bin/python -m tests.eval.subagent.run_live --arm both --runs 3 \\
         --provider deepseek --model deepseek-v4-flash \\
         --price-input 0.27 --price-output 1.10
 
 说明：
 
-- 预登记双套件：``--suite core``（20 个基础探索任务，对照面）与
+- 预登记三套件：``--suite core``（20 个基础探索任务，对照面）、
   ``--suite large``（9 个大范围盘点/负向证明/跨模块链任务，委派机制的
-  工作区间）分别跑批、分别归档；评分口径与门槛数字不随结果调整。
+  工作区间）与 ``--suite digest``（3 个通读消化任务，specs/ 规格语料
+  对照审计；委派隔离假设的直接检验）分别跑批、分别归档；评分口径与
+  门槛数字不随结果调整。
 - A 臂 = 无子代理的产品反事实（``BASE_SYSTEM_PROMPT``，工具集与 B 臂一致）；
   B 臂 = 现行 V1 委派（``subagent_run``，deferred 注册，与生产装配一致）。
 - ``--runs N``：每条任务每臂运行 N 次，报告按任务折叠（波动大的题集建议 3）。
@@ -82,7 +85,8 @@ def _parse_args() -> argparse.Namespace:
         choices=SUITES,
         help=(
             "只跑指定套件（可多次）：core=20 个基础探索任务；"
-            "large=9 个大范围盘点/负向证明/跨模块链任务。"
+            "large=9 个大范围盘点/负向证明/跨模块链任务；"
+            "digest=3 个通读消化任务（specs/ 规格语料对照审计）。"
         ),
     )
     parser.add_argument(

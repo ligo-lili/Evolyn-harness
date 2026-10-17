@@ -2,7 +2,8 @@
 
 仓库服务于核心 20 个评测任务（函数定位、跨文件调用链、配置追踪、异常处理、
 测试覆盖、跨模块依赖 + 安全子集）与「大范围探索」扩展任务（全仓盘点、
-负向证明、跨模块链；见 tasks.py 的 large suite）。
+负向证明、跨模块链；见 tasks.py 的 large suite），以及「通读消化」扩展任务
+（specs/ 规格语料对照审计；见 tasks.py 的 digest suite 与 digest_corpus.py）。
 
 设计约束：
 
@@ -10,12 +11,17 @@
 - 每个任务的标准答案都能在文件内容里精确核对（tasks.py 的常见疑问）；
 - 有意保留的「缺口」（权限缺失、会话绕过、数据隔离缺失、未使用配置、
   Deprecated 无调用方函数、未读开关、文档中从未读取的变量）是任务要发现的
-  确定事实，修改夹具内容时必须同步核对任务答案。
+  确定事实，修改夹具内容时必须同步核对任务答案；
+- digest 套件的 specs/ 语料在 digest_corpus.py 中单独维护：植入的规格偏差
+  （D01）、文档间矛盾（D02）与审计兑现矩阵（D03）由 tests/test_fixtures.py
+  的护栏锁定，改动必须同步并保持与既有守卫记号隔离。
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+from tests.eval.subagent.digest_corpus import DIGEST_SPEC_FILES
 
 FIXTURE_NAME = "shop-auth-sandbox"
 
@@ -37,6 +43,7 @@ FIXTURE_FILES: dict[str, str] = {
 - `src/integrations/`：支付、税务、通知等外部适配
 - `src/legacy/`：迁移中的历史代码（勿新增引用）
 - `docs/`：环境变量参考与运维文档
+- `specs/`：模块契约与技术政策文档（对照审计用）
 - `tests/`：pytest 测试
 
 入口装配：`src/api/app.py` 的 `dispatch()`。
@@ -2504,6 +2511,7 @@ def _generated_files() -> dict[str, str]:
     files.update(_EXTRA_CONFIG_FILES)
     files.update(_DOC_FILES)
     files.update(_GENERATED_TEST_FILES)
+    files.update(DIGEST_SPEC_FILES)
     return files
 
 

@@ -1,10 +1,13 @@
 """阶段 0 评测任务集：core suite 20 个真实代码探索任务 + large suite 9 个
-大范围探索任务（全仓盘点 / 负向证明 / 跨模块链）+ 标准答案。
+大范围探索任务（全仓盘点 / 负向证明 / 跨模块链）+ digest suite 3 个
+「通读消化」任务（specs/ 规格语料对照审计）+ 标准答案。
 
 core 任务分类对应 v3 §9 的覆盖面：函数定位、跨文件调用链、配置追踪、异常
 处理、测试覆盖、跨模块依赖，外加安全子集（认证 / 权限 / 数据隔离）。
 large 任务是委派机制的「工作区间」题：任务形态看起来就需要大面积检索，
 用于验证「子代理在上下文压力下是否真有价值」（与 core 对照报告）。
+digest 任务是委派隔离假设的直接检验：答案要求把 specs/ 规格语料（以及
+对应实现）通读摄入，期望的「避免的摄入」显著大于委派固定开销。
 
 标准答案形式为「关键结论」（KeyFact）：
 
@@ -15,8 +18,9 @@ large 任务是委派机制的「工作区间」题：任务形态看起来就�
 - 字符串匹配是刻意保守的确定性口径：它对「结论缺失」判罚可靠，对「表述
   含混」会有误报，阶段 0 报告同时给出每任务的关键结论明细供人工抽样核对。
 
-预登记：large suite 一经冻结，评分口径与门槛数字不得随跑批结果调整；
-跑批必须 core / large 两套分别报告（见 README「双套件报告」）。
+预登记：各 suite 一经冻结，评分口径与门槛数字不得随跑批结果调整；
+跑批必须按套件分别报告（见 README）。digest suite 的语料与植入事实见
+digest_corpus.py 与其护栏测试。
 """
 
 from __future__ import annotations
@@ -34,10 +38,11 @@ CATEGORIES: tuple[str, ...] = (
     "module_dependency",
     "repo_audit",
     "negative_proof",
+    "digest_synthesis",
     SECURITY_CATEGORY,
 )
 
-SUITES: tuple[str, ...] = ("core", "large")
+SUITES: tuple[str, ...] = ("core", "large", "digest")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1102,6 +1107,274 @@ TASKS: tuple[EvalTask, ...] = (
                 "val",
                 "超出退款期 → ValidationError → 400",
                 (r"(ValidationError|MAX_REFUND_DAYS|超期|过期)", r"400"),
+                match="all",
+            ),
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # digest（通读消化）：specs/ 规格语料对照审计
+    # ------------------------------------------------------------------
+    EvalTask(
+        id="D01-specs-impl-mismatch",
+        category="digest_synthesis",
+        name="规格与实现不一致清单",
+        suite="digest",
+        user_input=(
+            "仓库的 specs/ 目录保存着各团队的历史规格文档。请做一次"
+            "「规格-实现一致性审计」：通读 specs/ 下的文档（重点关注结算、"
+            "税费、通知、认证、促销、迁移与审计相关文档），逐条对照实现"
+            "代码，列出所有「规格声称与代码实际行为不符」的条款。每条给出："
+            "规格文件与条款、对应代码位置、差异说明。请尽量穷尽。"
+        ),
+        criteria=(
+            "找出 8 处植入偏差：结算扣款重试（规格 3 次 vs 无重试）、税额"
+            "取整（一律 half-up vs 默认截断）、通知未知渠道异常类型"
+            "（ValidationError vs ValueError）、锁定窗口（自动解除 vs 只计"
+            "次数）、审计写入通道（已总线化 vs 仍走 v1）、邮件批量上限"
+            "（500 vs 200）、LEGACY_RETRIES 缺省（3 vs 0）、促销重复码"
+            "（409 vs 静默覆盖）。"
+        ),
+        expected_files=22,
+        scope_hint=("specs/", "src/"),
+        key_facts=(
+            KeyFact(
+                "checkout-retry",
+                "结算契约称扣款失败自动重试 3 次，代码无重试",
+                (
+                    r"(confirm_order|结算|checkout)",
+                    r"(重试|retry)",
+                    r"(未(实现|接入|包含|提供)|没有(实现)?重试|无重试|不重试|缺失|未接线)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "tax-rounding",
+                "税费政策称一律四舍五入，代码默认截断（开关控制）",
+                (
+                    r"(税|tax)",
+                    r"(取整|舍入|round|四舍五入)",
+                    r"(截断|int\(|向下|舍弃|历史行为)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "notify-error-type",
+                "通知契约称未知渠道抛领域 ValidationError，代码抛 ValueError",
+                (
+                    r"(通知|notifications?)",
+                    r"ValueError",
+                    r"(ValidationError|领域异常|非领域)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "lockout-window",
+                "会话政策称锁定窗口到期自动解除，代码只判断次数",
+                (
+                    r"(锁定|失败次数)",
+                    r"(窗口|时窗)",
+                    r"(未(生效|接线|实现)|没有(生效|实现)?|只(判断|计)次数|不(会|随时间)清零)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "audit-write-channel",
+                "迁移台账称审计写入已总线化，代码仍走 v1 通道",
+                (
+                    r"(审计|audit)",
+                    r"(v1|legacy|旧(通道|版)|遗留|老通道)",
+                    r"(仍|还在|未迁移|没有迁移|待迁移|复用|尚未)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "email-bulk-cap",
+                "通知契约称批量邮件 500 上限且不截断，代码上限 200 并截断",
+                (
+                    r"(邮件|email|send_bulk|收件人)",
+                    r"500",
+                    r"200",
+                    r"(上限|批量|截断|限制)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "legacy-retries-default",
+                "迁移台账称 LEGACY_RETRIES 缺省 3，代码缺省 0",
+                (
+                    r"(LEGACY_RETRIES|retries|重试(次数|预算))",
+                    r"(缺省|默认|default)",
+                    r"3",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "promo-duplicate-conflict",
+                "促销规则称重复码必须 409，代码静默覆盖",
+                (
+                    r"(促销|promotion|apply_promotion)",
+                    r"(重复|duplicate|409|冲突)",
+                    r"(覆盖|静默|未(校验|去重|拒绝)|没有(校验|去重)|不(拒绝|去重))",
+                ),
+                match="all",
+            ),
+        ),
+    ),
+    EvalTask(
+        id="D02-specs-internal-conflicts",
+        category="digest_synthesis",
+        name="规格文档内部矛盾清单",
+        suite="digest",
+        user_input=(
+            "specs/ 目录中的文档由不同团队在不同时期编写。请通读全部文档，"
+            "找出彼此互相矛盾的条款（同一主题给出不一致要求）。逐条给出："
+            "矛盾主题、双方条款出处（文件与条款）、矛盾点。请尽量穷尽。"
+        ),
+        criteria=(
+            "找出 4 对植入的内部矛盾：分页上限（统一 100 不允许例外 vs "
+            "审计 200 唯一例外）、错误体字段（只允许 error vs 必须返回 "
+            "fields 数组）、发布窗口（支付/税务禁止周五 vs 支付迁移固定"
+            "周五夜间）、审计保留期（在线 90 天 vs 可查询 365 天）。"
+        ),
+        expected_files=35,
+        scope_hint=("specs/",),
+        key_facts=(
+            KeyFact(
+                "pagination-cap-conflict",
+                "分页政策 100 不允许例外 vs 审计契约 200 唯一例外",
+                (
+                    r"(分页|单页|页大小|page_size)",
+                    r"100",
+                    r"200",
+                    r"(矛盾|冲突|不一致|例外)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "error-body-fields-conflict",
+                "错误体只允许 error 字段 vs 发布门槛要求 fields 数组",
+                (
+                    r"(错误体|响应体)",
+                    r"fields",
+                    r"(禁止|不得|不允许|必须)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "release-window-conflict",
+                "发布清单禁止周五变更 vs 迁移台账周五夜间窗口",
+                (
+                    r"周五",
+                    r"(发布|发版|上线|切换|迁移|窗口)",
+                    r"(禁止|不得|冲突|矛盾|不一致)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "retention-conflict",
+                "可观测性标准在线保留 90 天 vs 安全基线 365 天",
+                (
+                    r"(保留|留存|查询)",
+                    r"90",
+                    r"365",
+                ),
+                match="all",
+            ),
+        ),
+    ),
+    EvalTask(
+        id="D03-audit-event-conformance",
+        category="digest_synthesis",
+        name="审计事件兑现矩阵",
+        suite="digest",
+        user_input=(
+            "specs/platform/audit-events.md 定义了必备审计事件清单与命名"
+            "规范。请逐项核对实现：对清单中的每个事件，给出实现现状分类——"
+            "「已按规范实现」/「已实现但命名不符」（给出实际事件名与代码"
+            "位置）/「缺失」（未找到记录点）。"
+        ),
+        criteria=(
+            "按清单 8 项给出矩阵：user.login → login_success、user.export → "
+            "user_exported、account.password_change → password_updated 为"
+            "命名不符；user.logout、order.confirm、refund.request、"
+            "review.publish、notification.dispatch 共 5 项缺失。"
+        ),
+        expected_files=12,
+        scope_hint=("specs/", "src/"),
+        key_facts=(
+            KeyFact(
+                "login-mismatch",
+                "user.login 实现为 login_success（命名不符）",
+                (
+                    r"login_success",
+                    r"user\.login",
+                    r"(命名|名称|不符|不一致)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "logout-missing",
+                "user.logout 缺失（无记录点）",
+                (
+                    r"(logout|登出)",
+                    r"(缺失|未(记录|实现|找到)|没有(记录)?|无.{0,6}(审计|记录))",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "export-mismatch",
+                "user.export 实现为 user_exported（命名不符）",
+                (
+                    r"user_exported",
+                    r"user\.export",
+                    r"(命名|名称|不符|不一致)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "password-mismatch",
+                "account.password_change 实现为 password_updated（命名不符）",
+                (
+                    r"password_updated",
+                    r"(password_change|修改密码)",
+                    r"(命名|名称|不符|不一致)",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "order-confirm-missing",
+                "order.confirm 缺失（结算链路无记录点）",
+                (
+                    r"(order\.confirm|订单确认|确认订单|结算确认)",
+                    r"(缺失|未(记录|实现|找到)|没有(记录)?|无.{0,6}(审计|记录))",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "refund-request-missing",
+                "refund.request 缺失（退款登记无记录点）",
+                (
+                    r"(refund\.request|退款(登记|申请|请求))",
+                    r"(缺失|未(记录|实现|找到)|没有(记录)?|无.{0,6}(审计|记录))",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "review-publish-missing",
+                "review.publish 缺失（评价发布无记录点）",
+                (
+                    r"(review\.publish|评价(发布|上线))",
+                    r"(缺失|未(记录|实现|找到)|没有(记录)?|无.{0,6}(审计|记录))",
+                ),
+                match="all",
+            ),
+            KeyFact(
+                "notification-dispatch-missing",
+                "notification.dispatch 缺失（通知派发无记录点）",
+                (
+                    r"(notification\.dispatch|通知(派发|发送|投递))",
+                    r"(缺失|未(记录|实现|找到)|没有(记录)?|无.{0,6}(审计|记录))",
+                ),
                 match="all",
             ),
         ),
