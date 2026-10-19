@@ -241,6 +241,23 @@ async def test_reflection_prompt_never_uses_ordinary_memory_as_core_fallback(
 
 
 @pytest.mark.asyncio
+async def test_reflection_prompt_uses_configured_append_limit() -> None:
+    adapter = FakeAdapter(
+        _config("reflect", "reflection-model"),
+        [_response('{"action":"none","reason":"没有耐久变化"}')],
+    )
+    reflector = PostRunMemoryReflector(
+        _registry(reflect=adapter),
+        config=_reflection_config(max_append_chars=777),
+    )
+
+    await reflector.decide(_input())
+
+    prompt = adapter.requests[0].messages[0].content or ""
+    assert "(at most 777 characters)" in prompt
+
+
+@pytest.mark.asyncio
 async def test_reflection_raw_io_is_disabled_by_default() -> None:
     adapter = FakeAdapter(
         _config("reflect", "reflection-model"),

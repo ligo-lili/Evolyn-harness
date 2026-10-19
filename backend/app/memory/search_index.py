@@ -228,7 +228,10 @@ def _fts_match_expression(query: str, *, max_terms: int = 24) -> str | None:
             break
     if not terms:
         return None
-    return " OR ".join(f'"{term}"' for term in terms)
+    # FTS5 短语内的双引号需要写成两个双引号，否则用户消息中的引号会让
+    # MATCH 表达式语法错误，整次检索降级为 INDEX 注入。
+    escaped = (term.replace('"', '""') for term in terms)
+    return " OR ".join(f'"{term}"' for term in escaped)
 
 
 def _cosine_similarity(
@@ -242,7 +245,10 @@ def _cosine_similarity(
         dot += left[index] * right[index]
     if dot == 0.0:
         return 0.0
-    return dot  # 索引与查询向量均已归一化，点积即余弦。
+    # 索引与查询向量均已归一化，点积即余弦。float32 舍入可能让完全相同的
+    # 向量点积略大于 1（如 1.0000001），这里收口到合法余弦区间，避免上层
+    # 事件字段（le=1.0）校验失败。
+    return max(-1.0, min(1.0, dot))
 
 
 def _decode_embedding(blob: bytes) -> array:
@@ -318,8 +324,45 @@ class MemorySearchIndex:
                 await database.execute("DELETE FROM memory_chunks")
                 await self._meta_set(database, "schema_version", _SCHEMA_VERSION)
             tokenizer = await self._ensure_fts_table(database)
+            if self._fts_available:
+                await self._repair_fts_projection(database)
             await self._meta_set(database, "fts_tokenizer", tokenizer)
             await database.commit()
+
+    async def _repair_fts_projection(
+        self,
+        database: aiosqlite.Connection,
+    ) -> None:
+        """FTS 行数与 chunk 不一致时，从 chunk 投影重建（保留向量）。
+
+        典型场景：旧版本/旧解释器没有 FTS5，升级后首次建表；或投影表被
+        手工删除。``reconcile`` 会复用未变化的 chunk，不会重写 FTS，因此
+        必须在建表阶段修复，否则 FTS 会一直为空直到记忆内容变化。
+        """
+
+        chunk_count = (
+            await database.execute_fetchall("SELECT COUNT(*) FROM memory_chunks")
+        )[0][0]
+        fts_count = (
+            await database.execute_fetchall("SELECT COUNT(*) FROM memory_fts")
+        )[0][0]
+        if chunk_count == fts_count:
+            return
+        rows = await database.execute_fetchall(
+            "SELECT memory_id, chunk_index, text FROM memory_chunks"
+        )
+        await database.execute("DELETE FROM memory_fts")
+        for memory_id, chunk_index, text in rows:
+            await database.execute(
+                "INSERT INTO memory_fts "
+                "(segment, text, memory_id, chunk_index) VALUES (?, ?, ?, ?)",
+                (segment_for_fts(text or ""), text or "", memory_id, chunk_index),
+            )
+        logger.info(
+            "rebuilt memory fts projection from %s chunks (had %s rows)",
+            len(rows),
+            fts_count,
+        )
 
     async def _ensure_fts_table(self, database: aiosqlite.Connection) -> str:
         """建 FTS5 表：segment 列索引二元切分文本，text 列保留原文。

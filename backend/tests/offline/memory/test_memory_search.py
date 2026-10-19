@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+from array import array
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +40,8 @@ from app.memory import (
 from app.memory.search_index import (
     MemorySearchIndex,
     _ChunkHit,
+    _cosine_similarity,
+    _fts_match_expression,
     segment_for_fts,
 )
 from app.models.adapter import ModelAdapter
@@ -185,6 +188,18 @@ def test_segment_for_fts_splits_cjk_bigrams() -> None:
     assert segment_for_fts("记") == "记"
 
 
+def test_fts_match_expression_escapes_embedded_quotes() -> None:
+    # 用户消息可能包含引号；未转义的引号会让 FTS5 MATCH 语法错误，
+    # 导致整次检索降级为 INDEX 注入。
+    assert _fts_match_expression('say"hi') == '"say""hi"'
+
+
+def test_cosine_similarity_is_clamped_to_unit_interval() -> None:
+    # float32 舍入可能让点积略大于 1；事件字段要求 le=1.0。
+    assert _cosine_similarity(array("f", [2.0, 0.0]), array("f", [2.0, 0.0])) == 1.0
+    assert _cosine_similarity(array("f", [1.0]), array("f", [-1.0])) == -1.0
+
+
 @pytest.mark.asyncio
 async def test_chinese_two_char_keyword_recall_via_fts(
     memory_root: Path,
@@ -266,6 +281,32 @@ async def test_schema_v3_upgrade_rebuilds_fts_projection(
         ).fetchone()
     assert version == ("3",)
     await upgraded.close()
+
+
+@pytest.mark.asyncio
+async def test_missing_fts_rows_are_rebuilt_from_chunks(
+    memory_root: Path,
+) -> None:
+    manager = MemoryManager(memory_root, embedding=None)
+    await manager.initialize()
+    await _seed(manager)
+    await manager.close()
+
+    database_path = memory_root / "search.sqlite"
+    with closing(sqlite3.connect(database_path)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM memory_fts").fetchone()[0] > 0
+        connection.execute("DELETE FROM memory_fts")
+        connection.commit()
+
+    # 同 schema 版本下 chunk 可复用，reconcile 不会重写 FTS；必须在建表
+    # 阶段按 chunk 补齐，否则 FTS 会一直为空。
+    repaired = MemoryManager(memory_root, embedding=None)
+    await repaired.initialize()
+    result = await repaired.search("数据库")
+
+    assert result.mode is SearchMode.FTS
+    assert result.candidates
+    await repaired.close()
 
 
 # ----------------------------------------------------------------------

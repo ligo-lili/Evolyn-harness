@@ -66,9 +66,9 @@ Return strict JSON and no markdown fence:
 CREATE requires title, summary, content. UPDATE requires memory_id plus the
 complete replacement title, summary, and content so the recall cue stays aligned
 with the body. APPEND requires memory_id plus a concise, self-contained addition
-paragraph (at most 1500 characters) and must leave title, summary, and content
-null; append instead of updating when the delta only adds facts and the complete
-new body would be long. NONE must leave all mutation fields null."""
+paragraph (at most {max_append_chars} characters) and must leave title, summary,
+and content null; append instead of updating when the delta only adds facts and
+the complete new body would be long. NONE must leave all mutation fields null."""
 
 
 class PostRunMemoryReflector:
@@ -150,7 +150,10 @@ class PostRunMemoryReflector:
                         messages=(
                             Message(
                                 role=MessageRole.SYSTEM,
-                                content=_REFLECTION_PROMPT,
+                                content=_REFLECTION_PROMPT.replace(
+                                    "{max_append_chars}",
+                                    str(self.config.max_append_chars),
+                                ),
                             ),
                             Message(
                                 role=MessageRole.USER,
