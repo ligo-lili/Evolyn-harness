@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -34,7 +36,11 @@ from app.memory import (
     MemorySearchSettings,
     SearchMode,
 )
-from app.memory.search_index import MemorySearchIndex, _ChunkHit
+from app.memory.search_index import (
+    MemorySearchIndex,
+    _ChunkHit,
+    segment_for_fts,
+)
 from app.models.adapter import ModelAdapter
 from app.models.config import ModelSettings, ProviderConfig
 from app.models.registry import ModelAdapterRegistry
@@ -164,6 +170,102 @@ async def test_exact_keyword_recall_via_fts5_without_embedding(
     assert [candidate.memory_id for candidate in result.candidates] == ["M001"]
     assert result.candidates[0].matched_by_fts is True
     assert result.candidates[0].matched_by_vector is False
+
+
+# ----------------------------------------------------------------------
+# CJK 二元切分：2 字中文词与无空格中文长句由 FTS 召回
+# ----------------------------------------------------------------------
+
+
+def test_segment_for_fts_splits_cjk_bigrams() -> None:
+    assert segment_for_fts("记忆模块") == "记忆 忆模 模块"
+    assert segment_for_fts("数据库") == "数据 据库"
+    assert segment_for_fts("PG 迁移脚本") == "PG 迁移 移脚 脚本"
+    assert segment_for_fts("英文 word") == "英文 word"
+    assert segment_for_fts("记") == "记"
+
+
+@pytest.mark.asyncio
+async def test_chinese_two_char_keyword_recall_via_fts(
+    memory_root: Path,
+) -> None:
+    manager = MemoryManager(memory_root, embedding=None)
+    await manager.initialize()
+    await _seed(manager)
+
+    result = await manager.search("数据库")
+
+    assert result.mode is SearchMode.FTS
+    assert [candidate.memory_id for candidate in result.candidates] == ["M001"]
+    assert result.candidates[0].matched_by_fts is True
+
+
+@pytest.mark.asyncio
+async def test_chinese_sentence_recall_via_fts(
+    memory_root: Path,
+) -> None:
+    manager = MemoryManager(memory_root, embedding=None)
+    await manager.initialize()
+    await _seed(manager)
+
+    # 无空格中文长句在 trigram + 整句 phrase 下完全匹配不到；二元切分后
+    # 应召回相关记忆。
+    result = await manager.search("当初数据库迁移到 PG 是怎么定的")
+
+    assert result.mode is SearchMode.FTS
+    assert result.candidates
+    assert result.candidates[0].memory_id == "M001"
+
+
+@pytest.mark.asyncio
+async def test_fts_ascii_keyword_is_whole_word(
+    memory_root: Path,
+) -> None:
+    manager = MemoryManager(memory_root, embedding=None)
+    await manager.initialize()
+    await manager.create(
+        title="Embedding backfill retry strategy",
+        summary="vector backfill attempts and delay",
+        content="The backfill worker retries with exponential delay.",
+    )
+
+    hit = await manager.search("backfill")
+    miss = await manager.search("ckfill")
+
+    assert [candidate.memory_id for candidate in hit.candidates] == ["M001"]
+    # unicode61 整词匹配：词内子串不再命中（原 trigram 行为已变更）。
+    assert miss.candidates == ()
+    assert miss.mode is SearchMode.FTS
+
+
+@pytest.mark.asyncio
+async def test_schema_v3_upgrade_rebuilds_fts_projection(
+    memory_root: Path,
+) -> None:
+    manager = MemoryManager(memory_root, embedding=None)
+    await manager.initialize()
+    await _seed(manager)
+    await manager.close()
+
+    database_path = memory_root / "search.sqlite"
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.execute(
+            "UPDATE search_meta SET value = '2' WHERE key = 'schema_version'"
+        )
+        connection.commit()
+
+    upgraded = MemoryManager(memory_root, embedding=None)
+    await upgraded.initialize()
+    result = await upgraded.search("数据库")
+
+    assert result.mode is SearchMode.FTS
+    assert result.candidates
+    with closing(sqlite3.connect(database_path)) as connection:
+        version = connection.execute(
+            "SELECT value FROM search_meta WHERE key = 'schema_version'"
+        ).fetchone()
+    assert version == ("3",)
+    await upgraded.close()
 
 
 # ----------------------------------------------------------------------
@@ -402,6 +504,46 @@ async def test_search_and_recall_do_not_increment_access_count(
 
 
 # ----------------------------------------------------------------------
+# 近重复探测：find_similar 返回原始余弦且不做阈值过滤
+# ----------------------------------------------------------------------
+
+
+async def _wait_for_embeddings(manager: MemoryManager) -> None:
+    for _ in range(200):
+        if manager.embedding_backfill_status == "complete":
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("embedding backfill did not complete")
+
+
+@pytest.mark.asyncio
+async def test_find_similar_ranks_near_duplicate_first(memory_root: Path) -> None:
+    manager = MemoryManager(memory_root, embedding=FakeEmbeddingAdapter())
+    await manager.initialize()
+    await manager.create(
+        title="部署流程",
+        summary="发布部署的既定流程",
+        content="先跑测试，再构建镜像，最后滚动发布。",
+    )
+    await manager.create(
+        title="数据库迁移决定",
+        summary="生产库从 MySQL 迁移到 PostgreSQL",
+        content="迁移脚本放在 deploy/pg-migration。",
+    )
+    await _wait_for_embeddings(manager)
+
+    hits = await manager.find_similar(
+        "部署流程\n发布部署的既定流程\n先跑测试，再构建镜像，最后滚动发布。",
+        limit=2,
+    )
+
+    assert hits
+    assert hits[0].memory_id == "M001"
+    assert hits[0].similarity > 0.8
+    assert hits[0].title == "部署流程"
+
+
+# ----------------------------------------------------------------------
 # 注入：Hybrid 不注入 INDEX，Legacy 保持 INDEX
 # ----------------------------------------------------------------------
 
@@ -470,6 +612,67 @@ async def test_runtime_index_failure_falls_back_to_legacy_index(
     assert MEMORY_INDEX_MESSAGE_NAME in names
     assert MEMORY_RECALL_MESSAGE_NAME not in names
     assert context.recall_mode == SearchMode.UNAVAILABLE.value
+    assert context.recall_fallback == "index"
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_zero_candidate_recall_falls_back_to_index(
+    memory_root: Path,
+) -> None:
+    manager = MemoryManager(memory_root, embedding=FakeEmbeddingAdapter())
+    await manager.initialize()
+    await _seed(manager)
+
+    session = RuntimeContextSession(
+        memory_manager=manager,
+        skill_store=None,
+        skill_context_provider=None,
+        task_context_provider=None,
+        recall_query=MemoryRecallQueryInputs(user_message="今天天气怎么样"),
+    )
+    context = await session.build(
+        conversation_id=None,
+        recovery_checkpoint=None,
+        trailing_system_messages=(),
+    )
+
+    names = [message.name for message in context.messages]
+    assert MEMORY_INDEX_MESSAGE_NAME in names
+    assert MEMORY_RECALL_MESSAGE_NAME not in names
+    # 检索确实执行过（非 UNAVAILABLE），只是零候选；快照与降级标记都要
+    # 保留给 Trace。
+    assert context.recall_mode is not None
+    assert context.recall_mode != SearchMode.UNAVAILABLE.value
+    assert context.recall_fallback == "index"
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_recall_with_candidates_does_not_fallback(
+    memory_root: Path,
+) -> None:
+    manager = MemoryManager(memory_root, embedding=FakeEmbeddingAdapter())
+    await manager.initialize()
+    await _seed(manager)
+
+    session = RuntimeContextSession(
+        memory_manager=manager,
+        skill_store=None,
+        skill_context_provider=None,
+        task_context_provider=None,
+        recall_query=MemoryRecallQueryInputs(user_message="数据库迁移决定是什么"),
+    )
+    context = await session.build(
+        conversation_id=None,
+        recovery_checkpoint=None,
+        trailing_system_messages=(),
+    )
+
+    names = [message.name for message in context.messages]
+    assert MEMORY_RECALL_MESSAGE_NAME in names
+    assert MEMORY_INDEX_MESSAGE_NAME not in names
+    assert context.recall_fallback is None
     await manager.close()
 
 
@@ -809,7 +1012,10 @@ async def test_runtime_recall_not_persisted_into_history_or_summary(
         event for event in events.events if event.type is AgentEventType.MODEL_STARTED
     ]
     assert len(started) == 2
-    assert started[0].recall_candidate_ids == ("M001",)
+    # 中文二元切分后，"迁移"等共享词会同时召回 M002；排序仍以相关度
+    # 更高的 M001 为首。
+    assert started[0].recall_candidate_ids[0] == "M001"
+    assert set(started[0].recall_candidate_ids) == {"M001", "M002"}
     assert started[0].recall_mode == SearchMode.HYBRID.value
     # 5) 自动召回不增加 access_count。
     record = await manager.store.load("M001")

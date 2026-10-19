@@ -784,6 +784,7 @@ class AgentLoop:
                 ),
                 recall_candidate_ids=context_injection.recall_candidate_ids,
                 recall_mode=context_injection.recall_mode,
+                recall_fallback=context_injection.recall_fallback,
                 prefix_decision=prefix_decision,
                 compact_ceiling_tokens=context_decision.compact_ceiling_tokens,
                 forced_target_tokens=context_decision.forced_target_tokens,

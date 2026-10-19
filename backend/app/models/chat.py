@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import sys
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 
 from app.agent.events import (
@@ -41,7 +42,10 @@ from app.mcp import (
     MCPServerStatus,
 )
 from app.memory import (
+    MemoryManager,
     MemoryRecord,
+    MemoryStatus,
+    normalize_memory_id,
 )
 from app.run import Run, RunStatus
 from app.skill_learning import (
@@ -84,6 +88,10 @@ _HELP_TEXT = (
     "\n记忆与扩展\n"
     "  /memories 查看活跃长期记忆及 Recall Cue\n"
     "  /memory <记忆ID> 查看一条长期记忆的完整内容\n"
+    "  /memory history <记忆ID> 查看可回退的 revision 快照\n"
+    "  /memory revision <记忆ID> <r> 查看某份快照的完整内容\n"
+    "  /memory revert <记忆ID> <r> 回退到该快照的内容\n"
+    "  /memory restore <记忆ID> 把归档记忆恢复为 active\n"
     "  /mcp 查看 MCP Server 连接状态和已注册工具\n"
     "  /skill-candidates 查看待人工评审的 Skill Learning 候选\n"
     "  /skill-candidate <ID> 查看候选详情\n"
@@ -613,6 +621,168 @@ def _print_memory(memory: MemoryRecord) -> None:
     )
 
 
+_MEMORY_COMMAND_USAGE = (
+    "用法：/memory <记忆ID> | /memory history <记忆ID> | "
+    "/memory revision <记忆ID> <revision> | "
+    "/memory revert <记忆ID> <revision> | /memory restore <记忆ID>"
+)
+
+
+async def _handle_memory_command(manager: MemoryManager, content: str) -> None:
+    """处理 ``/memory`` 的查看、历史、回退与归档恢复子命令。"""
+
+    remainder = content.removeprefix("/memory").strip()
+    if not remainder:
+        print(_MEMORY_COMMAND_USAGE)
+        return
+    parts = remainder.split()
+    subcommand = parts[0].lower()
+    arguments = parts[1:]
+    if subcommand == "history":
+        if len(arguments) != 1:
+            print(_MEMORY_COMMAND_USAGE)
+            return
+        await _print_memory_history(manager, arguments[0])
+        return
+    if subcommand in {"revision", "revert"}:
+        if len(arguments) != 2 or not arguments[1].isdigit():
+            print(_MEMORY_COMMAND_USAGE)
+            return
+        await _handle_memory_revision(
+            manager,
+            memory_id=arguments[0],
+            revision=int(arguments[1]),
+            revert=subcommand == "revert",
+        )
+        return
+    if subcommand == "restore":
+        if len(arguments) != 1:
+            print(_MEMORY_COMMAND_USAGE)
+            return
+        await _handle_memory_restore(manager, arguments[0])
+        return
+    if len(parts) != 1:
+        print(_MEMORY_COMMAND_USAGE)
+        return
+    try:
+        memory = await manager.read(remainder)
+    except (TypeError, ValueError) as exc:
+        print(f"无效的记忆ID：{exc}")
+        return
+    if memory is None:
+        print(f"找不到记忆：{remainder}")
+        return
+    _print_memory(memory)
+
+
+async def _load_memory_for_admin(
+    manager: MemoryManager,
+    memory_id: str,
+) -> MemoryRecord | None:
+    """管理路径读取：不更新访问元数据，校验 ID 并提示缺失。"""
+
+    try:
+        normalized = normalize_memory_id(memory_id)
+    except (TypeError, ValueError) as exc:
+        print(f"无效的记忆ID：{exc}")
+        return None
+    record = await manager.load(normalized)
+    if record is None:
+        print(f"找不到记忆：{memory_id}")
+        return None
+    return record
+
+
+def _format_memory_stamp(value: datetime) -> str:
+    return value.astimezone().strftime("%Y-%m-%d %H:%M")
+
+
+async def _print_memory_history(
+    manager: MemoryManager,
+    memory_id: str,
+) -> None:
+    """输出当前 revision 与可恢复的历史快照。"""
+
+    record = await _load_memory_for_admin(manager, memory_id)
+    if record is None:
+        return
+    revisions = await manager.list_revisions(record.id)
+    print(
+        f"{record.id} 当前 r{record.revision} · {record.status.value} · "
+        f"更新于 {_format_memory_stamp(record.updated_at)}"
+    )
+    if not revisions:
+        print("没有历史快照。")
+        return
+    print("历史快照（新 → 旧）：")
+    for revision in revisions:
+        snapshot = await manager.read_revision(record.id, revision)
+        if snapshot is None:
+            continue
+        reason = snapshot.last_update_reason or "—"
+        print(
+            f"  r{revision}  {_format_memory_stamp(snapshot.updated_at)}  "
+            f"{reason}"
+        )
+
+
+async def _handle_memory_revision(
+    manager: MemoryManager,
+    *,
+    memory_id: str,
+    revision: int,
+    revert: bool,
+) -> None:
+    record = await _load_memory_for_admin(manager, memory_id)
+    if record is None:
+        return
+    snapshot = await manager.read_revision(record.id, revision)
+    if snapshot is None:
+        print(f"{record.id} 没有 r{revision} 快照。")
+        return
+    if not revert:
+        print(f"{record.id} r{revision} 快照：")
+        _print_memory(snapshot)
+        return
+    try:
+        restored = await manager.restore_revision(
+            record.id,
+            revision,
+            reason=f"CLI 回退到 r{revision}",
+        )
+    except (KeyError, ValueError) as exc:
+        print(exc)
+        return
+    print(
+        f"{record.id} 已回退到 r{revision} 的内容，"
+        f"生成当前 r{restored.revision}"
+    )
+
+
+async def _handle_memory_restore(
+    manager: MemoryManager,
+    memory_id: str,
+) -> None:
+    record = await _load_memory_for_admin(manager, memory_id)
+    if record is None:
+        return
+    if record.status is MemoryStatus.ACTIVE:
+        print(f"{record.id} 已经是 active，无需恢复。")
+        return
+    try:
+        restored = await manager.restore(
+            record.id,
+            reason="CLI 手动恢复归档记忆",
+        )
+    except (KeyError, ValueError) as exc:
+        print(exc)
+        return
+    print(
+        f"{restored.id} 已恢复为 active，当前 r{restored.revision}；"
+        f"active {await manager.active_count()}/{manager.max_active}"
+    )
+
+
 async def _run(
     args: argparse.Namespace,
     *,
@@ -786,15 +956,7 @@ async def _run(
                 _print_mcp_statuses(mcp_manager.statuses())
                 continue
             if content == "/memory" or content.startswith("/memory "):
-                identifier = content.removeprefix("/memory").strip()
-                if not identifier:
-                    print("用法：/memory <记忆ID>")
-                    continue
-                memory = await memory_manager.read(identifier)
-                if memory is None:
-                    print(f"找不到记忆：{identifier}")
-                    continue
-                _print_memory(memory)
+                await _handle_memory_command(memory_manager, content)
                 continue
             if content == "/permissions":
                 rules = await rule_store.list(scope_ids=(conversation.id,))

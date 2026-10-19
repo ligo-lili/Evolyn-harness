@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.context.tokens import default_token_estimator
 
@@ -57,6 +57,9 @@ class CoreMemoryEntry(BaseModel):
     value: str
     reason: str
     source_statement: str
+    # 证据审计：记录证据来源消息的摘要与陈述偏移，便于回溯为什么写入。
+    source_message_sha256: str | None = None
+    source_offset: int | None = Field(default=None, ge=0)
     updated_at: datetime
 
     @field_validator("key", mode="before")
@@ -101,6 +104,20 @@ class CoreMemoryEntry(BaseModel):
                 f"{_MAX_SOURCE_STATEMENT_CHARS} characters"
             )
         return value
+
+    @field_validator("source_message_sha256")
+    @classmethod
+    def validate_source_message_sha256(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if len(normalized) != 64 or not all(
+            character in "0123456789abcdef" for character in normalized
+        ):
+            raise ValueError(
+                "core memory source digest must be a sha256 hex string"
+            )
+        return normalized
 
     @field_validator("updated_at")
     @classmethod
@@ -179,6 +196,8 @@ class CoreMemoryManager:
         value: str,
         reason: str,
         source_statement: str,
+        source_message_sha256: str | None = None,
+        source_offset: int | None = None,
     ) -> tuple[CoreMemoryEntry, bool]:
         """按 key 创建或更新 Core 条目，并保留其他条目与人工正文。"""
 
@@ -188,6 +207,8 @@ class CoreMemoryManager:
             value=value,
             reason=reason,
             source_statement=source_statement,
+            source_message_sha256=source_message_sha256,
+            source_offset=source_offset,
             updated_at=now,
         )
         raw = ""
@@ -348,13 +369,7 @@ def _render_document(
         "format": _CORE_FORMAT,
         "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "entries": [
-            {
-                "key": entry.key,
-                "value": entry.value,
-                "reason": entry.reason,
-                "source_statement": entry.source_statement,
-                "updated_at": entry.updated_at.isoformat(timespec="seconds"),
-            }
+            _render_entry_metadata(entry)
             for entry in sorted(entries.values(), key=lambda item: item.key)
         ],
     }
@@ -367,6 +382,23 @@ def _render_document(
         body.extend((f"### {entry.key}", "", entry.value, ""))
     visible = "\n".join(body).rstrip() + "\n"
     return f"---\n{front}---\n{visible}", visible
+
+
+def _render_entry_metadata(entry: CoreMemoryEntry) -> dict[str, object]:
+    """渲染单条 Core 条目的审计元数据；缺失证据字段时不写入空键。"""
+
+    metadata: dict[str, object] = {
+        "key": entry.key,
+        "value": entry.value,
+        "reason": entry.reason,
+        "source_statement": entry.source_statement,
+    }
+    if entry.source_message_sha256 is not None:
+        metadata["source_message_sha256"] = entry.source_message_sha256
+    if entry.source_offset is not None:
+        metadata["source_offset"] = entry.source_offset
+    metadata["updated_at"] = entry.updated_at.isoformat(timespec="seconds")
+    return metadata
 
 
 __all__ = [

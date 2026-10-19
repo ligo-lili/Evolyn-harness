@@ -17,6 +17,7 @@ _AMBIENT_ENVIRONMENT_KEYS = (
     "EVOLYN_SANDBOX_LOW_IL",
     # Sub-Agent 开关：离线测试默认必须启用，避免开发者机器配置干扰。
     "SUBAGENT_ENABLED",
+    "MEMORY_EMBEDDING_API_KEY",
 )
 
 
@@ -30,6 +31,10 @@ def _clean_ambient_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
     for key in _AMBIENT_ENVIRONMENT_KEYS:
         monkeypatch.delenv(key, raising=False)
+    # 开发者机器可能已在 backend/.env 启用真实 Embedding 服务。离线测试
+    # 必须离线：env 变量优先级高于 .env，这里强制关闭，确保不会调用真实
+    # 向量 API（需要向量路径的测试自行注入 FakeEmbeddingAdapter）。
+    monkeypatch.setenv("MEMORY_EMBEDDING_ENABLED", "false")
 
 
 @pytest.fixture()

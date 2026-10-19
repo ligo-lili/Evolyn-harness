@@ -7,6 +7,7 @@ Runtime 注入、Memory Policy 与语义工具。
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from app.memory import (
     MEMORY_INDEX_MESSAGE_NAME,
     MEMORY_POLICY_MESSAGE_NAME,
     MEMORY_POLICY_PROMPT,
+    CoreMemoryEntry,
     CoreMemoryManager,
     MemoryManager,
     MemoryRecord,
@@ -949,6 +951,93 @@ async def test_core_update_tool_writes_through_harness(memory_root: Path) -> Non
 
     assert result["created"] is True
     assert "始终使用中文交流" in await manager.core.load()
+
+
+@pytest.mark.asyncio
+async def test_core_update_rejects_short_or_low_coverage_statement(
+    memory_root: Path,
+) -> None:
+    manager = await _manager(memory_root)
+    registry = ToolRegistry()
+    register_memory_tools(registry, manager)
+    tool = registry.get("core_memory_update")
+    user_input = "请记住：以后用中文交流，所有回答和代码注释都要用中文。"
+
+    with pytest.raises(ValueError, match="too short"):
+        await tool.execute_with_context(
+            {
+                "key": "communication.language",
+                "value": "始终使用中文交流。",
+                "reason": "测试证据长度下限",
+                "explicit_user_statement": "以后用",
+            },
+            ToolExecutionContext(
+                tool_call=ToolCall(id="core-short", name="core_memory_update"),
+                user_input=user_input,
+            ),
+        )
+
+    with pytest.raises(ValueError, match="covers too little"):
+        await tool.execute_with_context(
+            {
+                "key": "communication.language",
+                "value": "始终使用中文交流。",
+                "reason": "测试短消息覆盖率下限",
+                "explicit_user_statement": "请记住：以后",
+            },
+            ToolExecutionContext(
+                tool_call=ToolCall(id="core-coverage", name="core_memory_update"),
+                user_input=user_input,
+            ),
+        )
+
+    assert await manager.core.load() == ""
+
+
+@pytest.mark.asyncio
+async def test_core_update_records_statement_digest_and_offset(
+    memory_root: Path,
+) -> None:
+    manager = await _manager(memory_root)
+    registry = ToolRegistry()
+    register_memory_tools(registry, manager)
+    tool = registry.get("core_memory_update")
+    statement = "以后都使用中文和我交流"
+    user_input = f"请记住，{statement}。"
+
+    result = await tool.execute_with_context(
+        {
+            "key": "communication.language",
+            "value": "始终使用中文交流。",
+            "reason": "用户明确表达全局长期偏好",
+            "explicit_user_statement": statement,
+        },
+        ToolExecutionContext(
+            tool_call=ToolCall(id="core-audit", name="core_memory_update"),
+            user_input=user_input,
+        ),
+    )
+
+    assert result["created"] is True
+    raw = (memory_root / "CORE.md").read_text(encoding="utf-8")
+    digest = hashlib.sha256(user_input.encode("utf-8")).hexdigest()
+    assert digest in raw
+    assert f"source_offset: {user_input.index(statement)}" in raw
+    visible = await manager.core.load()
+    assert "source_message_sha256" not in visible
+    assert digest not in visible
+
+
+def test_core_entry_rejects_malformed_source_digest() -> None:
+    with pytest.raises(ValueError, match="sha256"):
+        CoreMemoryEntry(
+            key="communication.language",
+            value="始终使用中文交流。",
+            reason="测试非法摘要",
+            source_statement="以后使用中文",
+            source_message_sha256="not-a-digest",
+            updated_at=datetime.now(UTC),
+        )
 
 
 @pytest.mark.asyncio

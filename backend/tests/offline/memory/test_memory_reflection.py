@@ -3,21 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from app.agent.events import AgentEventType, InMemoryEventHandler
 from app.agent.result import AgentStopReason
 from app.agent.runtime import AgentRuntime
 from app.memory import (
+    FakeEmbeddingAdapter,
     MemoryManager,
     MemoryReflectionConfig,
     MemoryReflectionInput,
     PostRunMemoryReflector,
     ReflectionAction,
+    ReflectionDecision,
     register_memory_tools,
 )
 from app.models.adapter import ModelAdapter
@@ -103,6 +106,10 @@ def _registry(**adapters: FakeAdapter) -> ModelAdapterRegistry:
     return registry
 
 
+def _decision_response(payload: dict[str, object]) -> ModelResponse:
+    return _response(json.dumps(payload, ensure_ascii=False))
+
+
 def _input(
     *,
     recalled_memory_ids: tuple[str, ...] = (),
@@ -132,6 +139,14 @@ async def _manager(path: Path, *, max_active: int = 25) -> MemoryManager:
     manager = MemoryManager(path, max_active=max_active)
     await manager.initialize()
     return manager
+
+
+async def _wait_for_embeddings(manager: MemoryManager) -> None:
+    for _ in range(200):
+        if manager.embedding_backfill_status == "complete":
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("embedding backfill did not complete")
 
 
 @pytest.mark.asyncio
@@ -191,7 +206,7 @@ async def test_reflection_prompt_treats_confirmed_same_topic_delta_as_update(
     assert "刚完成的新规则" in proposal.input_json
     assert proposal.raw_output is not None
     prompt = adapter.requests[0].messages[0].content or ""
-    assert "prefer UPDATE over CREATE or" in prompt
+    assert "prefer UPDATE or APPEND over" in prompt
     assert "NONE, even when the new rule" in prompt
     assert "not require a code edit or file mutation" in prompt
 
@@ -624,6 +639,499 @@ async def test_runtime_successful_memory_read_authorizes_reflection_update(
     assert "普通记忆由运行后反思模型沉淀" in (
         await manager.index.load() or ""
     )
+
+
+def test_reflection_append_decision_validates_fields() -> None:
+    decision = ReflectionDecision.model_validate(
+        {
+            "action": "append",
+            "memory_id": "m001",
+            "addition": "补充：灰度发布前必须跑数据库迁移。",
+            "reason": "补充部署规则",
+        }
+    )
+
+    assert decision.action is ReflectionAction.APPEND
+    assert decision.memory_id == "M001"
+    assert decision.addition == "补充：灰度发布前必须跑数据库迁移。"
+
+    with pytest.raises(ValidationError):
+        ReflectionDecision.model_validate(
+            {"action": "append", "memory_id": "M001", "reason": "缺少增量"}
+        )
+    with pytest.raises(ValidationError):
+        ReflectionDecision.model_validate(
+            {
+                "action": "append",
+                "memory_id": "M001",
+                "addition": "补充",
+                "content": "不允许完整正文",
+                "reason": "字段冲突",
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_manager_append_keeps_body_and_bumps_revision(
+    tmp_path: Path,
+) -> None:
+    manager = await _manager(tmp_path / "memory")
+    record = await manager.create(
+        title="部署流程",
+        summary="发布部署的既定流程",
+        content="先跑测试，再构建镜像。",
+    )
+
+    updated = await manager.append(
+        record.id,
+        addition="补充：灰度发布前必须跑数据库迁移。",
+        reason="追加部署补充事实",
+    )
+
+    assert updated.revision == record.revision + 1
+    assert updated.content == (
+        "先跑测试，再构建镜像。\n\n补充：灰度发布前必须跑数据库迁移。"
+    )
+    assert updated.title == record.title
+    assert updated.summary == record.summary
+
+    with pytest.raises(ValueError, match="revision conflict"):
+        await manager.append_if_revision(
+            record.id,
+            expected_revision=record.revision,
+            addition="基于旧 revision 的追加",
+            reason="revision 冲突测试",
+        )
+
+
+@pytest.mark.asyncio
+async def test_runtime_successful_memory_read_authorizes_reflection_append(
+    tmp_path: Path,
+) -> None:
+    manager = await _manager(tmp_path / "memory")
+    record = await manager.create(
+        title="项目方向",
+        summary="Evolyn 的长期记忆方向",
+        content="旧方向：只保留少量长期记忆。",
+    )
+    main = FakeAdapter(
+        _config("main", "main-model"),
+        [
+            ModelResponse(
+                id="read-response",
+                provider="main",
+                model="main-model",
+                message=Message(
+                    role=MessageRole.ASSISTANT,
+                    tool_calls=(
+                        ToolCall(
+                            id="read-memory-append",
+                            name="memory_read",
+                            arguments={"memory_id": record.id},
+                        ),
+                    ),
+                ),
+            ),
+            _response("已完成补充", provider="main", model="main-model"),
+        ],
+    )
+    reflect = FakeAdapter(
+        _config("reflect", "reflection-model"),
+        [
+            _response(
+                '{"action":"append","memory_id":"M001",'
+                '"addition":"补充：核心偏好写入 Core，普通决定写入普通记忆。",'
+                '"reason":"本轮补充了长期记忆边界"}'
+            )
+        ],
+    )
+    registry = _registry(main=main, reflect=reflect)
+    tools = ToolRegistry()
+    register_memory_tools(tools, manager)
+    runtime = AgentRuntime(
+        registry,
+        tools,
+        provider="main",
+        memory_manager=manager,
+        memory_reflector=PostRunMemoryReflector(
+            registry,
+            config=_reflection_config(),
+        ),
+    )
+
+    result = await runtime.run("读取旧决定并补充一条边界规则")
+
+    assert result.ok is True
+    updated = await manager.store.load(record.id)
+    assert updated is not None
+    assert updated.revision == record.revision + 1
+    assert updated.title == record.title
+    assert updated.summary == record.summary
+    assert updated.content == (
+        "旧方向：只保留少量长期记忆。\n\n"
+        "补充：核心偏好写入 Core，普通决定写入普通记忆。"
+    )
+    assert updated.last_update_reason == "本轮补充了长期记忆边界"
+    assert "项目方向" in (await manager.index.load() or "")
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_oversized_reflection_output(
+    tmp_path: Path,
+) -> None:
+    manager = await _manager(tmp_path / "memory")
+    main = FakeAdapter(
+        _config("main", "main-model"),
+        [_response("最终答案", provider="main", model="main-model")],
+    )
+    oversized = "长" * 3_000
+    reflect = FakeAdapter(
+        _config("reflect", "reflection-model"),
+        [
+            _response(
+                '{"action":"create","title":"超长记忆","summary":"预算护栏测试",'
+                f'"content":"{oversized}",'
+                '"reason":"输出预算测试"}'
+            )
+        ],
+    )
+    registry = _registry(main=main, reflect=reflect)
+    events = InMemoryEventHandler()
+    runtime = AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="main",
+        memory_manager=manager,
+        memory_reflector=PostRunMemoryReflector(
+            registry,
+            config=_reflection_config(max_output_tokens=100),
+        ),
+    )
+
+    result = await runtime.run("正常任务", event_handler=events)
+
+    assert result.ok is True
+    assert await manager.list() == ()
+    failed = next(
+        event
+        for event in events.events
+        if event.type is AgentEventType.MEMORY_REFLECTION_FAILED
+    )
+    assert failed.reflection_error is not None
+    assert "exceeds configured budget" in failed.reflection_error
+
+
+# ----------------------------------------------------------------------
+# CREATE 近重复探测：强重复自动合并，中相似记录 suspect
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_runtime_create_merges_near_duplicate_via_embedding(
+    tmp_path: Path,
+) -> None:
+    manager = MemoryManager(tmp_path / "memory", embedding=FakeEmbeddingAdapter())
+    await manager.initialize()
+    original = await manager.create(
+        title="数据库迁移决定",
+        summary="生产库从 MySQL 迁移到 PostgreSQL 的最终决定",
+        content="2024-12 定稿：生产环境数据库从 MySQL 整体迁移到 PostgreSQL 16。",
+    )
+    await _wait_for_embeddings(manager)
+
+    main = FakeAdapter(
+        _config("main", "main-model"),
+        [_response("最终答案", provider="main", model="main-model")],
+    )
+    reflect = FakeAdapter(
+        _config("reflect", "reflection-model"),
+        [
+            _decision_response(
+                {
+                    "action": "create",
+                    "title": "迁移决定补充",
+                    "summary": "生产库迁移决定的最新补充",
+                    "content": (
+                        "2024-12 定稿：生产环境数据库从 MySQL 整体迁移到 "
+                        "PostgreSQL 16，迁移脚本放在 deploy/pg-migration。"
+                    ),
+                    "reason": "用户确认了迁移脚本位置",
+                }
+            )
+        ],
+    )
+    registry = _registry(main=main, reflect=reflect)
+    events = InMemoryEventHandler()
+    runtime = AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="main",
+        memory_manager=manager,
+        memory_reflector=PostRunMemoryReflector(
+            registry,
+            # FakeEmbedding 下这对近重复约 0.78，高于 0.72 的默认合并阈值。
+            config=_reflection_config(),
+        ),
+    )
+
+    result = await runtime.run("确认数据库迁移决定", event_handler=events)
+
+    assert result.ok is True
+    active = await manager.list()
+    assert [record.id for record in active] == [original.id]
+    merged = await manager.store.load(original.id)
+    assert merged is not None
+    assert merged.revision == 2
+    assert "迁移脚本放在 deploy/pg-migration" in merged.content
+    completed = next(
+        event
+        for event in events.events
+        if event.type is AgentEventType.MEMORY_REFLECTION_COMPLETED
+    )
+    assert completed.reflection_dedup_outcome == "merged"
+    assert completed.reflection_dedup_memory_id == original.id
+    assert completed.reflection_dedup_similarity is not None
+
+
+@pytest.mark.asyncio
+async def test_runtime_create_title_match_merges_without_new_memory(
+    tmp_path: Path,
+) -> None:
+    manager = MemoryManager(tmp_path / "memory", embedding=FakeEmbeddingAdapter())
+    await manager.initialize()
+    original = await manager.create(
+        title="数据库迁移决定",
+        summary="生产库从 MySQL 迁移到 PostgreSQL",
+        content="2024-12 定稿：生产环境数据库迁移到 PostgreSQL 16。",
+    )
+    await _wait_for_embeddings(manager)
+
+    main = FakeAdapter(
+        _config("main", "main-model"),
+        [_response("最终答案", provider="main", model="main-model")],
+    )
+    reflect = FakeAdapter(
+        _config("reflect", "reflection-model"),
+        [
+            _decision_response(
+                {
+                    "action": "create",
+                    "title": " 数据库迁移决定 ",
+                    "summary": "迁移脚本位置补充",
+                    "content": "补充：迁移脚本放在 deploy/pg-migration。",
+                    "reason": "标题与既有记忆一致",
+                }
+            )
+        ],
+    )
+    registry = _registry(main=main, reflect=reflect)
+    events = InMemoryEventHandler()
+    runtime = AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="main",
+        memory_manager=manager,
+        memory_reflector=PostRunMemoryReflector(
+            registry,
+            config=_reflection_config(),
+        ),
+    )
+
+    result = await runtime.run("补充迁移脚本文档", event_handler=events)
+
+    assert result.ok is True
+    active = await manager.list()
+    assert [record.id for record in active] == [original.id]
+    merged = await manager.store.load(original.id)
+    assert merged is not None
+    assert "迁移脚本放在 deploy/pg-migration" in merged.content
+    completed = next(
+        event
+        for event in events.events
+        if event.type is AgentEventType.MEMORY_REFLECTION_COMPLETED
+    )
+    assert completed.reflection_dedup_outcome == "title_match"
+    assert completed.reflection_dedup_memory_id == original.id
+    assert completed.reflection_dedup_similarity is None
+
+
+@pytest.mark.asyncio
+async def test_runtime_create_records_suspect_duplicate_but_still_creates(
+    tmp_path: Path,
+) -> None:
+    manager = MemoryManager(tmp_path / "memory", embedding=FakeEmbeddingAdapter())
+    await manager.initialize()
+    original = await manager.create(
+        title="部署流程",
+        summary="发布部署的既定流程",
+        content="先跑测试，再构建镜像，最后滚动发布。",
+    )
+    await _wait_for_embeddings(manager)
+
+    main = FakeAdapter(
+        _config("main", "main-model"),
+        [_response("最终答案", provider="main", model="main-model")],
+    )
+    reflect = FakeAdapter(
+        _config("reflect", "reflection-model"),
+        [
+            _decision_response(
+                {
+                    "action": "create",
+                    "title": "部署与发布补充",
+                    "summary": "发布流程的补充规则",
+                    "content": "发布流程需要灰度观察，部署后再全量。",
+                    "reason": "同主题的新增规则",
+                }
+            )
+        ],
+    )
+    registry = _registry(main=main, reflect=reflect)
+    events = InMemoryEventHandler()
+    runtime = AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="main",
+        memory_manager=manager,
+        memory_reflector=PostRunMemoryReflector(
+            registry,
+            config=_reflection_config(
+                dedup_threshold=0.99,
+                dedup_suspect_threshold=0.0,
+            ),
+        ),
+    )
+
+    result = await runtime.run("补充发布流程规则", event_handler=events)
+
+    assert result.ok is True
+    active = await manager.list()
+    assert len(active) == 2
+    assert original.id in [record.id for record in active]
+    completed = next(
+        event
+        for event in events.events
+        if event.type is AgentEventType.MEMORY_REFLECTION_COMPLETED
+    )
+    assert completed.reflection_dedup_outcome == "suspect"
+    assert completed.reflection_dedup_memory_id == original.id
+    assert completed.reflection_dedup_similarity is not None
+
+
+@pytest.mark.asyncio
+async def test_runtime_create_dedup_disabled_creates_duplicate(
+    tmp_path: Path,
+) -> None:
+    manager = MemoryManager(tmp_path / "memory", embedding=FakeEmbeddingAdapter())
+    await manager.initialize()
+    original = await manager.create(
+        title="数据库迁移决定",
+        summary="生产库从 MySQL 迁移到 PostgreSQL",
+        content="2024-12 定稿：生产环境数据库迁移到 PostgreSQL 16。",
+    )
+    await _wait_for_embeddings(manager)
+
+    main = FakeAdapter(
+        _config("main", "main-model"),
+        [_response("最终答案", provider="main", model="main-model")],
+    )
+    reflect = FakeAdapter(
+        _config("reflect", "reflection-model"),
+        [
+            _decision_response(
+                {
+                    "action": "create",
+                    "title": "数据库迁移决定",
+                    "summary": "生产库从 MySQL 迁移到 PostgreSQL",
+                    "content": "2024-12 定稿：生产环境数据库迁移到 PostgreSQL 16。",
+                    "reason": "dedup 关闭时保持原行为",
+                }
+            )
+        ],
+    )
+    registry = _registry(main=main, reflect=reflect)
+    events = InMemoryEventHandler()
+    runtime = AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="main",
+        memory_manager=manager,
+        memory_reflector=PostRunMemoryReflector(
+            registry,
+            config=_reflection_config(dedup_enabled=False),
+        ),
+    )
+
+    result = await runtime.run("再次确认迁移决定", event_handler=events)
+
+    assert result.ok is True
+    active = await manager.list()
+    assert len(active) == 2
+    assert original.id in [record.id for record in active]
+    completed = next(
+        event
+        for event in events.events
+        if event.type is AgentEventType.MEMORY_REFLECTION_COMPLETED
+    )
+    assert completed.reflection_dedup_outcome is None
+
+
+@pytest.mark.asyncio
+async def test_runtime_create_merge_failure_falls_back_to_create(
+    tmp_path: Path,
+) -> None:
+    manager = await _manager(tmp_path / "memory")
+    original = await manager.create(
+        title="超长记忆",
+        summary="正文接近上限",
+        content="甲" * 11_000,
+    )
+
+    main = FakeAdapter(
+        _config("main", "main-model"),
+        [_response("最终答案", provider="main", model="main-model")],
+    )
+    reflect = FakeAdapter(
+        _config("reflect", "reflection-model"),
+        [
+            _decision_response(
+                {
+                    "action": "create",
+                    "title": "超长记忆",
+                    "summary": "追加内容会超过正文上限",
+                    "content": "乙" * 1_200,
+                    "reason": "合并注定超限，应降级为新建",
+                }
+            )
+        ],
+    )
+    registry = _registry(main=main, reflect=reflect)
+    events = InMemoryEventHandler()
+    runtime = AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="main",
+        memory_manager=manager,
+        memory_reflector=PostRunMemoryReflector(
+            registry,
+            # 1_200 个 CJK 字符约 3_000 token，放宽输出预算以让它进入合并路径。
+            config=_reflection_config(max_output_tokens=6_000),
+        ),
+    )
+
+    result = await runtime.run("补充超长记忆", event_handler=events)
+
+    assert result.ok is True
+    active = await manager.list()
+    assert len(active) == 2
+    assert original.id in [record.id for record in active]
+    completed = next(
+        event
+        for event in events.events
+        if event.type is AgentEventType.MEMORY_REFLECTION_COMPLETED
+    )
+    assert completed.reflection_dedup_outcome == "merge_failed"
+    assert completed.reflection_dedup_memory_id == original.id
 
 
 @pytest.mark.asyncio

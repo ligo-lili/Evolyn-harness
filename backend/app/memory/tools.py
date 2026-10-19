@@ -13,6 +13,7 @@ Registry（普通记忆写入由 Post-Run Reflection 经 Manager 完成）。
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from app.models.types import ToolDefinition
@@ -455,17 +456,17 @@ class CoreMemoryUpdateTool(BaseTool):
         value = _required_string(arguments, "value")
         reason = _required_string(arguments, "reason")
         statement = _required_string(arguments, "explicit_user_statement")
-        user_input = context.user_input
-        if not user_input or statement not in user_input:
-            raise ValueError(
-                "'explicit_user_statement' must be copied exactly from the "
-                "current user message"
-            )
+        normalized_statement, offset, digest = _validate_core_statement(
+            statement,
+            context.user_input,
+        )
         entry, created = await self._manager.upsert_core(
             key=key,
             value=value,
             reason=reason,
-            source_statement=statement,
+            source_statement=normalized_statement,
+            source_message_sha256=digest,
+            source_offset=offset,
         )
         return {
             "key": entry.key,
@@ -525,12 +526,7 @@ class CoreMemoryRemoveTool(BaseTool):
         key = _required_string(arguments, "key")
         _required_string(arguments, "reason")
         statement = _required_string(arguments, "explicit_user_statement")
-        user_input = context.user_input
-        if not user_input or statement not in user_input:
-            raise ValueError(
-                "'explicit_user_statement' must be copied exactly from the "
-                "current user message"
-            )
+        _validate_core_statement(statement, context.user_input)
         removed = await self._manager.remove_core(key)
         return {"key": removed.key, "removed": True}
 
@@ -568,6 +564,54 @@ def _required_string(arguments: dict[str, Any], name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"'{name}' must be a non-empty string")
     return value.strip()
+
+
+# Core 证据下限：防止用一两个字的片段为任意 Core 写入"背书"。
+_MIN_CORE_STATEMENT_CHARS = 4
+_SHORT_MESSAGE_CHARS = 80
+_SHORT_MESSAGE_COVERAGE = 0.4
+
+
+def _validate_core_statement(
+    statement: str,
+    user_input: str | None,
+) -> tuple[str, int, str]:
+    """校验 explicit_user_statement 是当前用户消息的逐字片段。
+
+    返回 ``(归一化陈述, 在消息中的偏移, 消息 sha256)``。除逐字匹配外：
+
+    - 归一化后至少 4 个字符，避免单字片段充当证据；
+    - 用户消息不超过 80 字符时，陈述必须覆盖消息的 40% 以上，避免用
+      长消息里的零碎短语签发 Core 写入。
+    """
+
+    if not user_input:
+        raise ValueError(
+            "'explicit_user_statement' must be copied exactly from the "
+            "current user message"
+        )
+    offset = user_input.find(statement)
+    if offset < 0:
+        raise ValueError(
+            "'explicit_user_statement' must be copied exactly from the "
+            "current user message"
+        )
+    normalized = " ".join(statement.split())
+    if len(normalized) < _MIN_CORE_STATEMENT_CHARS:
+        raise ValueError(
+            "'explicit_user_statement' is too short to authorize a core "
+            "memory change"
+        )
+    if (
+        len(user_input) <= _SHORT_MESSAGE_CHARS
+        and len(normalized) / len(user_input) < _SHORT_MESSAGE_COVERAGE
+    ):
+        raise ValueError(
+            "'explicit_user_statement' covers too little of a short user "
+            "message to authorize a core memory change"
+        )
+    digest = hashlib.sha256(user_input.encode("utf-8")).hexdigest()
+    return normalized, offset, digest
 
 
 __all__ = [

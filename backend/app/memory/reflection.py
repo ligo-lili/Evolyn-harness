@@ -40,16 +40,19 @@ compensation, or backup for missed Core storage. Ordinary memory is for importan
 historical project decisions, durable project direction changes, and background
 that may need to be recalled in a later session.
 
-For update, only replace an existing memory listed in recalled_memory_ids. Those
-IDs prove the main Agent successfully read the full memory during this run. If
-only an Index cue is available, return none instead of guessing or erasing details.
+For update or append, only touch an existing memory listed in recalled_memory_ids.
+Those IDs prove the main Agent successfully read the full memory during this run.
+If only an Index cue is available, return none instead of guessing or erasing
+details.
 
 Treat a current user's explicit statement that a project decision or rule has
 been finalized, completed, corrected, or extended as durable evidence. It does
 not require a code edit or file mutation in this run. When such evidence adds a
-durable rule to a recalled memory's existing topic, prefer UPDATE over CREATE or
-NONE, even when the new rule does not contradict the old content. Do not confuse
-"the run changed files" with "the run learned durable project knowledge".
+durable rule to a recalled memory's existing topic, prefer UPDATE or APPEND over
+CREATE or NONE, even when the new rule does not contradict the old content. Use
+APPEND when the delta only adds facts to that topic; use UPDATE when existing
+content is corrected, replaced, or restructured. Do not confuse "the run changed
+files" with "the run learned durable project knowledge".
 
 Preserve the recalled memory's still-valid facts when updating. Also preserve
 material negations, rejected alternatives, replacement relationships, numeric
@@ -57,12 +60,15 @@ limits, and safety constraints from the current evidence. Do not invent a
 finalized decision from proposals, speculation, or the assistant's own claims.
 
 Return strict JSON and no markdown fence:
-{"action":"none|create|update","memory_id":null,"title":null,
-"summary":null,"content":null,"reason":"..."}
+{"action":"none|create|update|append","memory_id":null,"title":null,
+"summary":null,"content":null,"addition":null,"reason":"..."}
 
 CREATE requires title, summary, content. UPDATE requires memory_id plus the
 complete replacement title, summary, and content so the recall cue stays aligned
-with the body. NONE must leave all mutation fields null."""
+with the body. APPEND requires memory_id plus a concise, self-contained addition
+paragraph (at most 1500 characters) and must leave title, summary, and content
+null; append instead of updating when the delta only adds facts and the complete
+new body would be long. NONE must leave all mutation fields null."""
 
 
 class PostRunMemoryReflector:

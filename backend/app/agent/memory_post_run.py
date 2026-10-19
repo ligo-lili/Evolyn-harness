@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
+from app.context.tokens import default_token_estimator
 from app.memory import (
     MaintenanceAction,
     MemoryMaintenanceCandidate,
     MemoryMaintenanceInput,
     MemoryMaintenanceReflector,
     MemoryManager,
+    MemoryRecord,
+    MemoryReflectionConfig,
     MemoryReflectionInput,
     PostRunMemoryReflector,
     ReflectionAction,
+    ReflectionDecision,
     decide_reflection_gate,
 )
 from app.models.types import ModelUsage
@@ -26,6 +31,8 @@ from .runtime_helpers import (
     recalled_memory_revisions,
     reflection_tool_context,
 )
+
+logger = logging.getLogger("evolyn.agent.memory_post_run")
 
 
 class PostRunMemoryCoordinator:
@@ -116,8 +123,10 @@ class PostRunMemoryCoordinator:
             reflection_input = MemoryReflectionInput(
                 run_id=result.run_id,
                 conversation_id=conversation_id,
-                user_input=user_input[:8_000],
-                final_answer=(result.final_message.content or "")[:12_000],
+                user_input=user_input[: reflector.config.max_user_chars],
+                final_answer=(result.final_message.content or "")[
+                    : reflector.config.max_answer_chars
+                ],
                 tool_context=reflection_tool_context(
                     result.tool_calls,
                     max_chars=reflector.config.max_tool_context_chars,
@@ -190,6 +199,9 @@ class PostRunMemoryCoordinator:
         proposal = None
         memory_id: str | None = None
         mutation_applied = False
+        dedup_outcome: str | None = None
+        dedup_memory_id: str | None = None
+        dedup_similarity: float | None = None
         try:
             proposal = await reflector.decide(reflection_input)
             if proposal.error is not None:
@@ -198,6 +210,7 @@ class PostRunMemoryCoordinator:
                 raise RuntimeError("reflection model returned no decision")
 
             decision = proposal.decision
+            _enforce_reflection_output_budget(decision, reflector.config)
             if decision.action is ReflectionAction.UPDATE:
                 memory_id = decision.memory_id
                 expected_revision = recalled_revisions.get(memory_id or "")
@@ -215,31 +228,67 @@ class PostRunMemoryCoordinator:
                 )
                 memory_id = record.id
                 mutation_applied = True
+            elif decision.action is ReflectionAction.APPEND:
+                memory_id = decision.memory_id
+                expected_revision = recalled_revisions.get(memory_id or "")
+                if expected_revision is None:
+                    raise ValueError(
+                        "reflection append requires memory_read success in current run"
+                    )
+                addition = decision.addition or ""
+                if len(addition) > reflector.config.max_append_chars:
+                    raise ValueError(
+                        "reflection append exceeds max_append_chars: "
+                        f"{len(addition)} > {reflector.config.max_append_chars}"
+                    )
+                record = await manager.append_if_revision(
+                    memory_id or "",
+                    expected_revision=expected_revision,
+                    addition=addition,
+                    reason=decision.reason,
+                )
+                memory_id = record.id
+                mutation_applied = True
             elif decision.action is ReflectionAction.CREATE:
                 manager.validate_create(
                     title=decision.title or "",
                     summary=decision.summary or "",
                     content=decision.content or "",
                 )
-                capacity_ready = await self.ensure_capacity(
-                    required_slots=1,
-                    emitter=emitter,
+                (
+                    merged_record,
+                    dedup_outcome,
+                    dedup_memory_id,
+                    dedup_similarity,
+                ) = await _apply_create_dedup(
+                    manager=manager,
+                    decision=decision,
+                    config=reflector.config,
                 )
-                if not capacity_ready:
-                    raise RuntimeError(
-                        "memory create skipped because capacity is unavailable"
+                if merged_record is not None:
+                    # 强重复：已自动追加到已有记忆，不再新建。
+                    memory_id = merged_record.id
+                    mutation_applied = True
+                else:
+                    capacity_ready = await self.ensure_capacity(
+                        required_slots=1,
+                        emitter=emitter,
                     )
-                record = await manager.create_if_capacity(
-                    title=decision.title or "",
-                    summary=decision.summary or "",
-                    content=decision.content or "",
-                )
-                if record is None:
-                    raise RuntimeError(
-                        "memory create lost the available slot to a concurrent run"
+                    if not capacity_ready:
+                        raise RuntimeError(
+                            "memory create skipped because capacity is unavailable"
+                        )
+                    record = await manager.create_if_capacity(
+                        title=decision.title or "",
+                        summary=decision.summary or "",
+                        content=decision.content or "",
                     )
-                memory_id = record.id
-                mutation_applied = True
+                    if record is None:
+                        raise RuntimeError(
+                            "memory create lost the available slot to a concurrent run"
+                        )
+                    memory_id = record.id
+                    mutation_applied = True
         except Exception as exc:
             provider = (
                 proposal.provider
@@ -271,6 +320,9 @@ class PostRunMemoryCoordinator:
                     else None
                 ),
                 reflection_mutation_applied=False,
+                reflection_dedup_outcome=dedup_outcome,
+                reflection_dedup_memory_id=dedup_memory_id,
+                reflection_dedup_similarity=dedup_similarity,
                 reflection_input_json=(
                     proposal.input_json if proposal is not None else None
                 ),
@@ -305,6 +357,9 @@ class PostRunMemoryCoordinator:
             reflection_mutation_applied=mutation_applied,
             reflection_maintenance_required=maintenance_required,
             reflection_retention_candidate_ids=candidate_ids,
+            reflection_dedup_outcome=dedup_outcome,
+            reflection_dedup_memory_id=dedup_memory_id,
+            reflection_dedup_similarity=dedup_similarity,
             reflection_input_json=proposal.input_json,
             reflection_raw_output=proposal.raw_output,
             provider=proposal.provider,
@@ -533,6 +588,123 @@ class PostRunMemoryCoordinator:
             maintenance_remaining_overflow=remaining,
         )
         return False
+
+
+def _normalize_title_key(title: str) -> str:
+    """标题归一化：忽略大小写、空白与标点，用于确定性重复比对。"""
+
+    return "".join(
+        character for character in title.casefold() if character.isalnum()
+    )
+
+
+async def _apply_create_dedup(
+    *,
+    manager: MemoryManager,
+    decision: ReflectionDecision,
+    config: MemoryReflectionConfig,
+) -> tuple[MemoryRecord | None, str | None, str | None, float | None]:
+    """CREATE 前的近重复探测：命中强重复时自动合并到已有记忆。
+
+    返回 ``(merged_record, outcome, duplicate_id, similarity)``：
+
+    - ``merged_record`` 非 None 表示已把提议内容追加到已有记忆，调用方
+      跳过 CREATE；
+    - ``outcome`` 供 Trace 观测：``merged`` / ``title_match`` /
+      ``merge_failed`` / ``suspect`` / ``none`` / None（未探测）；
+    - 探测或合并失败一律降级为"未命中"，绝不阻塞正常 CREATE。
+    """
+
+    if not config.dedup_enabled:
+        return None, None, None, None
+    title = (decision.title or "").strip()
+    duplicate_id: str | None = None
+    similarity: float | None = None
+    outcome = "none"
+    title_key = _normalize_title_key(title)
+    if title_key:
+        try:
+            active = await manager.list()
+        except Exception:
+            active = ()
+        for record in active:
+            if _normalize_title_key(record.title) == title_key:
+                duplicate_id = record.id
+                outcome = "title_match"
+                break
+    if duplicate_id is None:
+        probe = "\n".join(
+            part
+            for part in (
+                title,
+                (decision.summary or "").strip(),
+                (decision.content or "").strip()[:600],
+            )
+            if part
+        )
+        try:
+            hits = await manager.find_similar(probe, limit=1)
+        except Exception:
+            hits = ()
+        if hits:
+            top = hits[0]
+            if top.similarity >= config.dedup_threshold:
+                duplicate_id = top.memory_id
+                similarity = top.similarity
+                outcome = "merged"
+            elif top.similarity >= config.dedup_suspect_threshold:
+                return None, "suspect", top.memory_id, top.similarity
+    if duplicate_id is None:
+        return None, outcome, None, None
+    try:
+        merged = await manager.append(
+            duplicate_id,
+            addition=decision.content or "",
+            reason=f"auto-merge near-duplicate create: {decision.reason}",
+        )
+    except Exception as exc:
+        logger.warning(
+            "memory create dedup merge failed for %s: %s",
+            duplicate_id,
+            exc,
+        )
+        return None, "merge_failed", duplicate_id, similarity
+    return merged, outcome, duplicate_id, similarity
+
+
+def _enforce_reflection_output_budget(
+    decision: ReflectionDecision,
+    config: MemoryReflectionConfig,
+) -> None:
+    """拒绝"生成内容几乎必然超出模型输出预算"的决策。
+
+    模型无法输出超过 max_output_tokens 的完整文本：当决策携带的标题、
+    摘要、正文（或 append 增量）估算 token 超过预算的 75% 时，实际响应
+    必然被截断或校验失败。在这里显式拒绝，把静默的 JSON 截断变成带
+    估算值的可解释失败事件。
+    """
+
+    if decision.action is ReflectionAction.NONE:
+        return
+    output_text = "\n".join(
+        part
+        for part in (
+            decision.title,
+            decision.summary,
+            decision.content,
+            decision.addition,
+        )
+        if part
+    )
+    budget = max(1, int(config.max_output_tokens * 0.75))
+    estimated = default_token_estimator().estimate_text(output_text)
+    if estimated > budget:
+        raise ValueError(
+            "reflection output exceeds configured budget: "
+            f"estimated {estimated} tokens > {budget} "
+            f"(max_output_tokens={config.max_output_tokens}); "
+            "prefer append or a shorter update"
+        )
 
 
 __all__ = ["PostRunMemoryCoordinator"]

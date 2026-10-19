@@ -32,6 +32,7 @@ class RuntimeContextInjection:
     active_skill_message_names: tuple[str, ...]
     recall_candidate_ids: tuple[str, ...] = ()
     recall_mode: str | None = None
+    recall_fallback: str | None = None
 
 
 class RuntimeContextSession:
@@ -59,6 +60,7 @@ class RuntimeContextSession:
         self._memory_messages: tuple[Message, ...] = ()
         self._memory_loaded = False
         self._recall_snapshot: MemoryRecallSnapshot | None = None
+        self._recall_fallback: str | None = None
         self._catalog: tuple[SkillMetadata, ...] = ()
         self._catalog_loaded = False
         self._active_skills: dict[str, Skill] = {}
@@ -182,6 +184,7 @@ class RuntimeContextSession:
                 if self._recall_snapshot is not None
                 else None
             ),
+            recall_fallback=self._recall_fallback,
         )
 
     async def _load_memory_messages(
@@ -206,12 +209,15 @@ class RuntimeContextSession:
             snapshot = await manager.recall(query)
         except Exception:
             # 自动召回失败不能阻塞 Run：退回 Legacy INDEX 注入。
+            self._recall_fallback = "index"
             return await _legacy_context_messages(manager)
         self._recall_snapshot = snapshot
-        if snapshot.mode is SearchMode.UNAVAILABLE:
-            # 索引可能在 Host 启动后损坏或暂时不可读。此时不能继续按
-            # Hybrid 模式构建空上下文，否则普通记忆既没有候选，也没有
-            # INDEX cue。保留失败快照用于 Trace，同时回退到 Legacy INDEX。
+        if snapshot.mode is SearchMode.UNAVAILABLE or not snapshot.candidates:
+            # 索引不可用（UNAVAILABLE）或本 Run 检出零候选时，都不能继续
+            # 按 Hybrid 模式构建空上下文，否则普通记忆既没有候选，也没有
+            # INDEX cue。保留快照用于 Trace，同时回退 Legacy INDEX 注入，
+            # 保证记忆仍然可发现。
+            self._recall_fallback = "index"
             return await _legacy_context_messages(manager)
         return await manager.context_messages(recall=snapshot)
 

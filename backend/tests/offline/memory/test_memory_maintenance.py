@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -12,9 +13,11 @@ from pydantic import SecretStr
 from app.agent.events import AgentEventType, InMemoryEventHandler
 from app.agent.runtime import AgentRuntime
 from app.memory import (
+    MemoryMaintenance,
     MemoryMaintenanceConfig,
     MemoryMaintenanceReflector,
     MemoryManager,
+    MemoryRecord,
     MemoryReflectionConfig,
     PostRunMemoryReflector,
 )
@@ -535,3 +538,130 @@ async def test_concurrent_capacity_checked_create_never_exceeds_limit(
 
     assert await manager.active_count() == 25
     assert sum(record is not None for record in (first, second)) == 1
+
+
+# ----------------------------------------------------------------------
+# Retention 候选排序：percentile rank 加权
+# ----------------------------------------------------------------------
+
+
+def _scored_record(
+    memory_id: str,
+    *,
+    hours_since_access: float,
+    hours_since_update: float,
+    access_count: int,
+    now: datetime | None = None,
+) -> MemoryRecord:
+    reference = now or datetime.now(UTC)
+    return MemoryRecord(
+        id=memory_id,
+        title=f"记忆 {memory_id}",
+        summary=f"cue {memory_id}",
+        content=f"正文 {memory_id}",
+        created_at=reference - timedelta(hours=hours_since_update + 100),
+        updated_at=reference - timedelta(hours=hours_since_update),
+        last_accessed_at=reference - timedelta(hours=hours_since_access),
+        access_count=access_count,
+    )
+
+
+def test_retention_prefers_stale_unused_memories() -> None:
+    maintenance = MemoryMaintenance(max_active=2)
+    stale = _scored_record(
+        "M001",
+        hours_since_access=500,
+        hours_since_update=400,
+        access_count=0,
+    )
+    fresh = _scored_record(
+        "M002",
+        hours_since_access=1,
+        hours_since_update=1,
+        access_count=6,
+    )
+
+    candidates = maintenance.select_candidates([fresh, stale], limit=1)
+
+    assert [record.id for record in candidates] == ["M001"]
+
+
+def test_never_accessed_memories_get_protection_bonus() -> None:
+    """同组内其余信号相同时，零访问记录得到 +0.1 保护分。
+
+    计算示例（recency/freshness 全并列，rank 取 0.5；计数 rank 依次为
+    0.125/0.375/0.625/0.875）：
+
+    - M002（1 次访问）= 0.35 + 0.3*0.375 = 0.4625；
+    - M001（0 次访问）= 0.35 + 0.3*0.125 + 0.1 = 0.4875。
+
+    因此访问过一次的 M002 反而更早进入候选；若没有保护分，M001 会排第一。
+    "读过一次再也没回来"是最可疑的形态，零访问则可能只是还没被需要过。
+    """
+
+    maintenance = MemoryMaintenance(max_active=4)
+    now = datetime.now(UTC)
+    records = [
+        _scored_record(
+            "M001",
+            hours_since_access=50,
+            hours_since_update=50,
+            access_count=0,
+            now=now,
+        ),
+        _scored_record(
+            "M002",
+            hours_since_access=50,
+            hours_since_update=50,
+            access_count=1,
+            now=now,
+        ),
+        _scored_record(
+            "M003",
+            hours_since_access=50,
+            hours_since_update=50,
+            access_count=2,
+            now=now,
+        ),
+        _scored_record(
+            "M004",
+            hours_since_access=50,
+            hours_since_update=50,
+            access_count=5,
+            now=now,
+        ),
+    ]
+
+    candidates = maintenance.select_candidates(records, limit=4)
+
+    assert [record.id for record in candidates] == [
+        "M002",
+        "M001",
+        "M003",
+        "M004",
+    ]
+
+
+def test_retention_ties_keep_stable_id_order() -> None:
+    maintenance = MemoryMaintenance(max_active=2)
+    now = datetime.now(UTC)
+    records = [
+        _scored_record(
+            "M002",
+            hours_since_access=10,
+            hours_since_update=10,
+            access_count=0,
+            now=now,
+        ),
+        _scored_record(
+            "M001",
+            hours_since_access=10,
+            hours_since_update=10,
+            access_count=0,
+            now=now,
+        ),
+    ]
+
+    candidates = maintenance.select_candidates(records, limit=2)
+
+    assert [record.id for record in candidates] == ["M001", "M002"]

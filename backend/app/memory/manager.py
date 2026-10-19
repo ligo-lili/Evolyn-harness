@@ -48,6 +48,7 @@ from .search_index import (
     MemorySearchIndex,
     MemorySearchResult,
     MemorySearchSettings,
+    MemorySimilarityHit,
     SearchMode,
 )
 from .store import DEFAULT_MEMORY_DIR, MemoryStore
@@ -212,12 +213,20 @@ class MemoryManager:
             return tuple(messages)
 
     async def reflection_context(self) -> tuple[str, str]:
-        """返回 Post-Run Reflection 使用的 Core 正文与当前 Index。"""
+        """返回 Post-Run Reflection 使用的 Core 正文与紧凑 Index。
+
+        紧凑 Index 只保留 ``id | title | summary`` 行式 cue，去掉 INDEX.md
+        面向主 Agent 的说明文字，减少 Reflector 的输入噪声。
+        """
 
         async with self._lock:
             core_text = await self.core.load()
-            index_text = await self.index.load()
-            return core_text, index_text or ""
+            records = await self.store.list_active()
+            index_text = "\n".join(
+                f"{record.id} | {record.title} | {record.summary}"
+                for record in records
+            )
+            return core_text, index_text
 
     # ------------------------------------------------------------------
     # 语义 Memory API（由模型工具调用）
@@ -292,6 +301,37 @@ class MemoryManager:
         """执行一次自动召回（Harness 每 Run 只调用一次）。"""
 
         return await self._recall_service.recall(inputs)
+
+    async def find_similar(
+        self,
+        text: str,
+        *,
+        limit: int = 3,
+    ) -> tuple[MemorySimilarityHit, ...]:
+        """按向量余弦找出与文本最相似的 active 记忆（不做阈值过滤）。
+
+        用于 Reflection 创建前的近重复探测。Embedding 不可用、未就绪或
+        失败时返回空元组，调用方退回确定性标题比对；探测不增加
+        access_count，也不修改任何记忆。
+        """
+
+        if (
+            not self._search_ok
+            or not self._search_index.embedding_configured
+        ):
+            return ()
+        hits = await self._search_index.nearest(text, limit=max(limit * 2, limit))
+        if hits is None:
+            return ()
+        enriched: list[MemorySimilarityHit] = []
+        for hit in hits:
+            record = await self.store.load(hit.memory_id)
+            if record is None or record.status is not MemoryStatus.ACTIVE:
+                continue
+            enriched.append(replace(hit, title=record.title))
+            if len(enriched) >= limit:
+                break
+        return tuple(enriched)
 
     async def create(
         self,
@@ -403,6 +443,50 @@ class MemoryManager:
             await self._sync_search_index(record)
             return record
 
+    async def append(
+        self,
+        memory_id: str,
+        *,
+        addition: str,
+        reason: str,
+    ) -> MemoryRecord:
+        """Harness 自动合并路径：向最新正文追加内容并重建 INDEX。
+
+        不校验模型授权链（调用方是系统探针而不是模型引用），但仍走
+        mutation guard 串行化，读取的是提交时刻的最新快照。
+        """
+
+        async with self._mutation_guard():
+            record = await self.store.append(
+                memory_id,
+                addition=addition,
+                reason=reason,
+            )
+            await self._rebuild_index()
+            await self._sync_search_index(record)
+            return record
+
+    async def append_if_revision(
+        self,
+        memory_id: str,
+        *,
+        expected_revision: int,
+        addition: str,
+        reason: str,
+    ) -> MemoryRecord:
+        """仅在模型读取的 revision 仍为最新时追加内容。"""
+
+        async with self._mutation_guard():
+            record = await self.store.append(
+                memory_id,
+                addition=addition,
+                reason=reason,
+                expected_revision=expected_revision,
+            )
+            await self._rebuild_index()
+            await self._sync_search_index(record)
+            return record
+
     async def archive(self, memory_id: str, *, reason: str) -> MemoryRecord:
         """归档记忆并重建 INDEX。"""
 
@@ -434,6 +518,70 @@ class MemoryManager:
             await self._drop_search_index(record.id)
             return record
 
+    async def restore(self, memory_id: str, *, reason: str) -> MemoryRecord:
+        """把归档记忆恢复为 active，重新进入 INDEX 与 Hybrid 检索。
+
+        管理路径（CLI 等）专用；恢复需要 active 有空位，不会突破硬上限。
+        恢复前保存 archived 状态快照。
+        """
+
+        async with self._mutation_guard():
+            record = await self.store.load(memory_id)
+            if record is None:
+                raise KeyError(f"memory '{memory_id}' not found")
+            if record.status is MemoryStatus.ARCHIVED:
+                if await self.store.count_active() >= self.max_active:
+                    raise ValueError(
+                        "active memory capacity is full; "
+                        "archive a memory before restoring"
+                    )
+            restored = await self.store.restore(memory_id, reason=reason)
+            await self._rebuild_index()
+            await self._sync_search_index(restored)
+            return restored
+
+    async def load(self, memory_id: str) -> MemoryRecord | None:
+        """读取记忆但不更新访问元数据（管理与观察路径）。"""
+
+        async with self._lock:
+            return await self.store.load(memory_id)
+
+    async def list_revisions(self, memory_id: str) -> tuple[int, ...]:
+        """列出某条记忆保存的 revision 快照编号（新 → 旧）。"""
+
+        async with self._lock:
+            return await self.store.list_revisions(memory_id)
+
+    async def read_revision(
+        self,
+        memory_id: str,
+        revision: int,
+    ) -> MemoryRecord | None:
+        """读取一份 revision 快照（不更新任何访问元数据）。"""
+
+        async with self._lock:
+            return await self.store.read_revision(memory_id, revision)
+
+    async def restore_revision(
+        self,
+        memory_id: str,
+        revision: int,
+        *,
+        reason: str | None = None,
+    ) -> MemoryRecord:
+        """把指定快照恢复为新的当前 revision（编号只前进，不回退）。"""
+
+        async with self._mutation_guard():
+            record = await self.store.restore_revision(
+                memory_id,
+                revision,
+                reason=reason,
+            )
+            if record.status is MemoryStatus.ACTIVE:
+                await self._rebuild_index()
+                await self._sync_search_index(record)
+            return record
+
     async def upsert_core(
         self,
         *,
@@ -441,6 +589,8 @@ class MemoryManager:
         value: str,
         reason: str,
         source_statement: str,
+        source_message_sha256: str | None = None,
+        source_offset: int | None = None,
     ) -> tuple[CoreMemoryEntry, bool]:
         """按 key 更新 Core；模型不能覆盖整份 CORE.md。"""
 
@@ -450,6 +600,8 @@ class MemoryManager:
                 value=value,
                 reason=reason,
                 source_statement=source_statement,
+                source_message_sha256=source_message_sha256,
+                source_offset=source_offset,
             )
 
     async def remove_core(self, key: str) -> CoreMemoryEntry:

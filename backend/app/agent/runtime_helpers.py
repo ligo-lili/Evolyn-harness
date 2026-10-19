@@ -199,38 +199,74 @@ def run_budget_event_fields(
     }
 
 
+# Reflector 工具上下文只对下列工具保留 arguments 与 output；其余工具只
+# 保留名称与成败，防止大段 shell / 联网输出挤占反思输入预算。
+_REFLECTION_DETAILED_TOOLS = frozenset(
+    {
+        "memory_read",
+        "memory_search",
+        "memory_list",
+        "core_memory_update",
+        "core_memory_remove",
+        "read_file",
+    }
+)
+_REFLECTION_TOOL_ITEM_MAX_CHARS = 600
+
+
 def reflection_tool_context(
     records: Sequence[ToolCallRecord],
     *,
     max_chars: int,
 ) -> tuple[str, ...]:
-    """为 Reflector 提供有界工具摘要，不默认复制全部原始输出。"""
+    """为 Reflector 提供有界工具摘要，不默认复制全部原始输出。
+
+    记忆读取类与文件读取工具保留参数与截断后的输出（证据来源）；其余
+    工具（写文件、执行命令、联网、Task 等）只保留名称与成败，既保留
+    "本 Run 动了什么"的信号，又不让噪声输出挤占预算。
+    """
 
     if max_chars <= 0:
         return ()
     remaining = max_chars
     items: list[str] = []
     for record in records:
-        payload = json.dumps(
-            {
+        if record.tool_call.name in _REFLECTION_DETAILED_TOOLS:
+            payload = {
                 "tool": record.tool_call.name,
                 "arguments": record.tool_call.arguments,
                 "success": record.result.success,
-                "output": record.result.output,
+                "output": _clip_tool_output(
+                    record.result.output,
+                    _REFLECTION_TOOL_ITEM_MAX_CHARS,
+                ),
                 "error": record.result.error,
-            },
+            }
+        else:
+            payload = {
+                "tool": record.tool_call.name,
+                "success": record.result.success,
+            }
+        rendered = json.dumps(
+            payload,
             ensure_ascii=False,
             separators=(",", ":"),
             default=str,
         )
-        if len(payload) > remaining:
-            payload = payload[:remaining]
-        if payload:
-            items.append(payload)
-            remaining -= len(payload)
+        if len(rendered) > remaining:
+            rendered = rendered[:remaining]
+        if rendered:
+            items.append(rendered)
+            remaining -= len(rendered)
         if remaining <= 0:
             break
     return tuple(items)
+
+
+def _clip_tool_output(output: str | None, limit: int) -> str | None:
+    if output is None:
+        return None
+    return output[:limit]
 
 
 def recalled_memory_revisions(

@@ -26,6 +26,15 @@ if TYPE_CHECKING:
 
 MEMORY_RECALL_MESSAGE_NAME = "evolyn_memory_recall"
 
+# Recall Query 各信号的分段预算：当前用户消息优先，其余信号在各自预算内
+# 补充，避免一条超长用户消息挤掉 Objective / Task / 近期消息。
+_RECALL_USER_MESSAGE_MAX_CHARS = 700
+_RECALL_RECENT_TOTAL_MAX_CHARS = 300
+_RECALL_RECENT_ITEM_MAX_CHARS = 120
+_RECALL_RECENT_MIN_CHARS = 4
+_RECALL_OBJECTIVE_MAX_CHARS = 300
+_RECALL_TASK_MAX_CHARS = 300
+
 
 @dataclass(frozen=True, slots=True)
 class MemoryRecallQueryInputs:
@@ -47,25 +56,44 @@ class MemoryRecallQueryInputs:
         return replace(self, task_title=task_title, task_active_steps=task_active_steps)
 
     def render(self, *, max_chars: int = 1_600) -> str:
-        """确定性渲染为有界 Query 文本（向量 + FTS 共用）。"""
+        """确定性渲染为有界 Query 文本（向量 + FTS 共用）。
 
-        sections: list[str] = [self.user_message.strip()]
-        recent = [
-            message.strip()
-            for message in self.recent_user_messages
-            if message.strip()
-        ]
+        分段配额：当前用户消息是最高优先级信号；近期用户消息、摘要目标
+        与活动 Task 各自受独立预算约束，不会互相挤占。过短或与当前消息
+        重复的近期消息不提供检索信号，直接跳过。
+        """
+
+        sections: list[str] = []
+        user_message = self.user_message.strip()[:_RECALL_USER_MESSAGE_MAX_CHARS]
+        if user_message:
+            sections.append(user_message)
+        recent: list[str] = []
+        recent_used = 0
+        for message in reversed(self.recent_user_messages):
+            text = message.strip()
+            if len(text) < _RECALL_RECENT_MIN_CHARS or text in user_message:
+                continue
+            text = text[:_RECALL_RECENT_ITEM_MAX_CHARS]
+            if recent_used + len(text) > _RECALL_RECENT_TOTAL_MAX_CHARS:
+                continue
+            recent.append(text)
+            recent_used += len(text)
         if recent:
-            sections.append(" | ".join(recent))
-        if self.summary_objective:
-            sections.append(self.summary_objective.strip())
+            sections.append(" | ".join(reversed(recent)))
+        objective = (self.summary_objective or "").strip()[
+            :_RECALL_OBJECTIVE_MAX_CHARS
+        ]
+        if objective:
+            sections.append(objective)
         if self.task_title:
             task_line = self.task_title.strip()
             if self.task_active_steps:
                 task_line += " > " + "; ".join(
                     step.strip() for step in self.task_active_steps if step.strip()
                 )
-            sections.append(task_line)
+            task_line = task_line[:_RECALL_TASK_MAX_CHARS]
+            if task_line:
+                sections.append(task_line)
         return "\n".join(section for section in sections if section)[:max_chars]
 
 

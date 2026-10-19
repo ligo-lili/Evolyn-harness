@@ -41,12 +41,14 @@ from .manager import (
     MemoryRecallSnapshot,
     MemorySearchResult,
     MemorySearchSettings,
+    MemorySimilarityHit,
     SearchMode,
 )
 from .models import (
     MemoryRecord,
     MemoryStatus,
     next_memory_id,
+    normalize_memory_id,
     parse_memory_markdown,
 )
 from .prompts import (
@@ -133,6 +135,7 @@ __all__ = [
     "MemorySearchResult",
     "MemorySearchSettings",
     "MemorySearchTool",
+    "MemorySimilarityHit",
     "MemoryStatus",
     "MemoryStore",
     "MemoryUpdateTool",
@@ -146,6 +149,7 @@ __all__ = [
     "build_embedding_adapter",
     "decide_reflection_gate",
     "next_memory_id",
+    "normalize_memory_id",
     "parse_memory_markdown",
     "recent_user_message_texts",
     "register_memory_tools",

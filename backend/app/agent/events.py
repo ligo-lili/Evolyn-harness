@@ -127,6 +127,11 @@ class AgentEvent(BaseModel):
     reflection_retention_candidate_ids: tuple[str, ...] = ()
     reflection_input_json: str | None = None
     reflection_raw_output: str | None = None
+    # CREATE 近重复探测观测字段（merged / title_match / merge_failed /
+    # suspect / none）。
+    reflection_dedup_outcome: str | None = None
+    reflection_dedup_memory_id: str | None = None
+    reflection_dedup_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     maintenance_triggered: bool | None = None
     maintenance_action: str | None = None
     maintenance_duration_ms: float | None = Field(default=None, ge=0.0)
@@ -164,6 +169,7 @@ class AgentEvent(BaseModel):
     # Memory 自动召回观测字段（每 Run 一次检索的候选与实际融合模式）。
     recall_candidate_ids: tuple[str, ...] = ()
     recall_mode: str | None = None
+    recall_fallback: str | None = None
     # 前缀复用决策：reuse=纯续用；defer=越软线仍续用；compact=发生压缩；
     # rebuild=前缀断裂但未触发压缩。
     prefix_decision: str | None = None

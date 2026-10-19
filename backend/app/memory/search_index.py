@@ -6,8 +6,9 @@
 - 只索引 active 记忆；archive 时删除对应行，归档记忆默认不可检索；
 - Chunk 保存 revision、正文 sha256、embedding model 与 dimensions，
   update 后旧 Chunk 依据 sha256 / revision 失效重算；
-- 检索 = FTS5（trigram，支持中文精确关键词）+ 向量余弦（语义改写），
-  两路排名用 RRF 融合并按 memory_id 合并 Chunk，取最相关片段做摘要；
+- 检索 = FTS5（CJK 二元切分 + unicode61，支持 2 字中文词与无空格中文
+  长句）+ 向量余弦（语义改写），两路排名用 RRF 融合并按 memory_id 合并
+  Chunk，取最相关片段做摘要；
 - Embedding 缺失或调用失败时自动降级为 FTS5 单路，绝不让 Run 失败。
 """
 
@@ -17,6 +18,7 @@ import asyncio
 import hashlib
 import logging
 import math
+import re
 from array import array
 from dataclasses import dataclass
 from enum import StrEnum
@@ -30,7 +32,7 @@ from .models import MemoryRecord, MemoryStatus
 logger = logging.getLogger("evolyn.memory.search_index")
 
 DEFAULT_SEARCH_DATABASE_NAME = "search.sqlite"
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _RRF_K = 60
 
 
@@ -65,6 +67,15 @@ class MemorySearchResult:
     candidates: tuple[MemorySearchCandidate, ...]
     query: str
     degrade_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MemorySimilarityHit:
+    """近重复探测结果：一条记忆与探针文本的最大余弦相似度。"""
+
+    memory_id: str
+    similarity: float
+    title: str
 
 
 class MemorySearchSettings:
@@ -176,19 +187,48 @@ def chunk_memory_text(
     return tuple(chunks)
 
 
-def _fts_match_expression(query: str, *, max_terms: int = 12) -> str | None:
-    """把自由文本 Query 转成安全的 FTS5 OR 短语表达式。"""
+_CJK_RUN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
 
+
+def segment_for_fts(text: str) -> str:
+    """把 CJK 连续文本切成二元组，其余文本原样保留。
+
+    FTS5 trigram 分词无法召回 2 字中文词，且无空格中文长句会被当作单个
+    phrase 完全匹配不到。索引与查询两侧统一做二元切分，再用 unicode61
+    整词分词，即可获得 ≥2 字中文词的稳定召回；ASCII 文本保持整词匹配
+    语义（不再支持词内子串匹配）。
+    """
+
+    def _bigrams(match: re.Match[str]) -> str:
+        run = match.group(0)
+        if len(run) < 2:
+            return run
+        return " ".join(run[index : index + 2] for index in range(len(run) - 1))
+
+    return _CJK_RUN_RE.sub(_bigrams, text)
+
+
+def _fts_match_expression(query: str, *, max_terms: int = 24) -> str | None:
+    """把自由文本 Query 转成安全的 FTS5 OR 短语表达式。
+
+    CJK 查询先做与索引侧对称的二元切分；词条去重并截断，既避免超长
+    查询无限扩张，也避免 FTS5 语法注入。
+    """
+
+    segmented = segment_for_fts(query.replace("\r", " ").replace("\n", " "))
     terms: list[str] = []
-    for raw in query.replace("\r", " ").replace("\n", " ").split():
+    seen: set[str] = set()
+    for raw in segmented.split():
         term = raw.strip().strip("\"'()*")
-        if len(term) < 2:
+        if len(term) < 2 or term in seen:
             continue
+        seen.add(term)
         terms.append(term)
+        if len(terms) >= max_terms:
+            break
     if not terms:
         return None
-    expressions = [f'"{term}"' for term in terms[:max_terms]]
-    return " OR ".join(expressions)
+    return " OR ".join(f'"{term}"' for term in terms)
 
 
 def _cosine_similarity(
@@ -282,20 +322,24 @@ class MemorySearchIndex:
             await database.commit()
 
     async def _ensure_fts_table(self, database: aiosqlite.Connection) -> str:
-        for tokenizer in ("trigram", "unicode61"):
-            try:
-                await database.execute(
-                    "CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5("
-                    "text, memory_id UNINDEXED, chunk_index UNINDEXED, "
-                    f"tokenize='{tokenizer}')"
-                )
-                await database.commit()
-                self._fts_available = True
-                return tokenizer
-            except aiosqlite.Error as exc:
-                logger.info("fts5 tokenizer %s unavailable: %s", tokenizer, exc)
-        self._fts_available = False
-        return "none"
+        """建 FTS5 表：segment 列索引二元切分文本，text 列保留原文。
+
+        ``text`` 使用 UNINDEXED，只作为 snippet 展示来源，不参与匹配。
+        """
+
+        try:
+            await database.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5("
+                "segment, text UNINDEXED, memory_id UNINDEXED, "
+                "chunk_index UNINDEXED, tokenize='unicode61')"
+            )
+            await database.commit()
+            self._fts_available = True
+            return "unicode61"
+        except aiosqlite.Error as exc:
+            logger.info("fts5 unicode61 tokenizer unavailable: %s", exc)
+            self._fts_available = False
+            return "none"
 
     async def reconcile(
         self,
@@ -426,8 +470,9 @@ class MemorySearchIndex:
                         if self._fts_available:
                             await database.execute(
                                 "INSERT INTO memory_fts ("
-                                "text, memory_id, chunk_index) VALUES (?, ?, ?)",
-                                (text, record.id, index),
+                                "segment, text, memory_id, chunk_index) "
+                                "VALUES (?, ?, ?, ?)",
+                                (segment_for_fts(text), text, record.id, index),
                             )
                 await database.commit()
         except Exception as exc:
@@ -749,8 +794,66 @@ class MemorySearchIndex:
         )
 
     # ------------------------------------------------------------------
+    # 近重复探测（CREATE 前）
+    # ------------------------------------------------------------------
+
+    async def nearest(
+        self,
+        text: str,
+        *,
+        limit: int = 3,
+    ) -> tuple[MemorySimilarityHit, ...] | None:
+        """返回与探针文本最相似的记忆（原始余弦，不做阈值过滤）。
+
+        仅用于 Harness 的近重复探测；需要向量路径可用。Embedding 缺失、
+        未就绪或调用失败时返回 None，由调用方决定兜底策略。
+        """
+
+        if self.embedding is None or not self._embeddings_ready:
+            return None
+        try:
+            query_vector_raw = await self.embedding.embed_query(text)
+        except Exception as exc:
+            logger.warning("memory similarity probe embedding failed: %s", exc)
+            return None
+        query_vector, _ = _normalize_vector(query_vector_raw)
+        try:
+            async with self._connect() as database:
+                rows = await database.execute_fetchall(
+                    "SELECT memory_id, title, embedding FROM memory_chunks "
+                    "WHERE embedding IS NOT NULL"
+                )
+        except aiosqlite.Error as exc:
+            logger.warning("memory similarity probe failed: %s", exc)
+            return None
+        best: dict[str, tuple[float, str]] = {}
+        for memory_id, title, blob in rows:
+            vector = _decode_embedding(blob)
+            if len(vector) != len(query_vector):
+                continue
+            similarity = _cosine_similarity(array("f", query_vector), vector)
+            current = best.get(memory_id)
+            if current is None or similarity > current[0]:
+                best[memory_id] = (similarity, title or "")
+        ordered = sorted(best.items(), key=lambda item: (-item[1][0], item[0]))
+        return tuple(
+            MemorySimilarityHit(
+                memory_id=memory_id,
+                similarity=best_value[0],
+                title=best_value[1],
+            )
+            for memory_id, best_value in ordered[:limit]
+        )
+
+    # ------------------------------------------------------------------
     # 辅助
     # ------------------------------------------------------------------
+
+    @property
+    def embedding_configured(self) -> bool:
+        """向量路径是否配置了 Embedding（与是否就绪无关）。"""
+
+        return self.embedding is not None
 
     @property
     def _embedding_model_name(self) -> str | None:
@@ -821,5 +924,7 @@ __all__ = [
     "MemorySearchIndex",
     "MemorySearchResult",
     "MemorySearchSettings",
+    "MemorySimilarityHit",
     "SearchMode",
+    "segment_for_fts",
 ]
