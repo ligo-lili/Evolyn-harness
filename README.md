@@ -33,7 +33,6 @@ Evolyn 是一个面向长期工作的本地 AI Agent Harness。它不只完成�
 - **Trace 与用量** — 记录模型、工具、审批、压缩与 Post-Run 事件，并拆分缓存与可计费用量。
 - **自动化** — 支持 once、interval 与 cron，将定时输入送入正常 Conversation/Run 链路；触发人工审批时在终端等待应答。
 - **审批** — 高风险工具在 CLI 中弹出终端审批，可继续或拒绝；非交互场景可通过权限规则预置放行。
-- **Computer Runtime（Windows）** — 纯 Python 提供结构化观察、目标验证与受控桌面操作；V1 仅主屏截屏。
 - **Artifact** — 将 Run 生成的文件或链接作为可追踪交付物发布。
 
 ## 架构总览
